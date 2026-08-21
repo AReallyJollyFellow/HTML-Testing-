@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Backrooms AR — Captain Clark</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; height: 100%; background: #000; }
+  #overlay {
+    position: fixed; top: 0; left: 0; width: 100%; padding: 12px;
+    font-family: -apple-system, sans-serif; color: #fff; text-align: center;
+    pointer-events: none; text-shadow: 0 1px 3px #000; z-index: 10;
+  }
+  #status { font-size: 14px; opacity: 0.85; }
+  #start-btn {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    padding: 14px 28px; font-size: 16px; border-radius: 30px; border: none;
+    background: #ff4444; color: #fff; font-family: sans-serif; z-index: 20;
+  }
+  #start-btn:disabled { background: #555; }
+</style>
+</head>
+<body>
+
+<div id="overlay"><div id="status">Loading model…</div></div>
+<button id="start-btn" disabled>Loading…</button>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
+
+// ---------------------------------------------------------------
+// CONFIG — point these at your files. They must sit next to this
+// HTML file (e.g. same GitHub repo folder), and the .mtl's texture
+// references must be relative paths that resolve the same way.
+// ---------------------------------------------------------------
+const MODEL_OBJ_PATH = './CaptainClark.obj';
+const MODEL_MTL_PATH = './CaptainClark.mtl';
+const WALK_SPEED = 0.12;          // meters/sec, "slowly"
+const ROAM_RADIUS = 2.0;          // how far it wanders from spawn point
+const BITE_COOLDOWN = 4.0;        // seconds between allowed bites
+
+const statusEl = document.getElementById('status');
+const startBtn = document.getElementById('start-btn');
+
+// ---------------------------------------------------------------
+// Renderer / scene / camera
+// ---------------------------------------------------------------
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.01, 20);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+renderer.xr.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.0));
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+dirLight.position.set(1, 2, 1);
+scene.add(dirLight);
+
+// ---------------------------------------------------------------
+// Reticle — the placement indicator shown once the session starts
+// ---------------------------------------------------------------
+const reticle = new THREE.Mesh(
+  new THREE.RingGeometry(0.08, 0.10, 32).rotateX(-Math.PI / 2),
+  new THREE.MeshBasicMaterial({ color: 0xff3333 })
+);
+reticle.matrixAutoUpdate = false;
+reticle.visible = false;
+scene.add(reticle);
+
+// ---------------------------------------------------------------
+// Load the model (no auto-rig — OBJ has no skeleton data to rig).
+// We look for sub-groups that might be named head/arm/leg/jaw so we
+// can move them individually; anything not found falls back to
+// animating the whole body as one piece.
+// ---------------------------------------------------------------
+let clarkTemplate = null;
+const mtlLoader = new MTLLoader();
+mtlLoader.load(MODEL_MTL_PATH, (materials) => {
+  materials.preload();
+  const objLoader = new OBJLoader();
+  objLoader.setMaterials(materials);
+  objLoader.load(
+    MODEL_OBJ_PATH,
+    (obj) => {
+      obj.traverse((c) => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
+      clarkTemplate = obj;
+      statusEl.textContent = 'Model loaded. Starting AR needs a WebXR headset/phone.';
+      startBtn.disabled = false;
+      startBtn.textContent = 'Enter AR';
+    },
+    undefined,
+    (err) => { statusEl.textContent = 'Failed to load OBJ: ' + err.message; }
+  );
+}, undefined, (err) => {
+  statusEl.textContent = 'Failed to load MTL: ' + err.message;
+});
+
+function findPart(root, keyword) {
+  let found = null;
+  root.traverse((c) => {
+    if (!found && c.name && c.name.toLowerCase().includes(keyword)) found = c;
+  });
+  return found;
+}
+
+// ---------------------------------------------------------------
+// Spawned character state
+// ---------------------------------------------------------------
+let clark = null;
+let clarkState = null; // { mode, target, spawnPoint, lastBite, parts }
+
+function spawnClark(position) {
+  if (!clarkTemplate || clark) return;
+  clark = clarkTemplate.clone(true);
+  clark.position.copy(position);
+  scene.add(clark);
+
+  clarkState = {
+    mode: 'idle',
+    spawnPoint: position.clone(),
+    target: position.clone(),
+    lastBite: -999,
+    time: 0,
+    parts: {
+      head: findPart(clark, 'head'),
+      jaw: findPart(clark, 'jaw'),
+      armL: findPart(clark, 'arm_l') || findPart(clark, 'armleft'),
+      armR: findPart(clark, 'arm_r') || findPart(clark, 'armright'),
+      legL: findPart(clark, 'leg_l') || findPart(clark, 'legleft'),
+      legR: findPart(clark, 'leg_r') || findPart(clark, 'legright'),
+    },
+    baseY: position.y,
+  };
+  pickNewWanderTarget();
+}
+
+function pickNewWanderTarget() {
+  const angle = Math.random() * Math.PI * 2;
+  const dist = Math.random() * ROAM_RADIUS;
+  clarkState.target.set(
+    clarkState.spawnPoint.x + Math.cos(angle) * dist,
+    0,
+    clarkState.spawnPoint.z + Math.sin(angle) * dist
+  );
+}
+
+function triggerBite() {
+  if (!clarkState) return;
+  if (clarkState.time - clarkState.lastBite < BITE_COOLDOWN) return;
+  clarkState.lastBite = clarkState.time;
+  clarkState.mode = 'bite';
+  clarkState.biteT = 0;
+}
+
+// ---------------------------------------------------------------
+// Procedural animation — idle / walk / bite.
+// This is original code-driven motion, not motion-captured or
+// copied animation data.
+// ---------------------------------------------------------------
+function animateClark(dt) {
+  if (!clark || !clarkState) return;
+  clarkState.time += dt;
+  const s = clarkState, p = s.parts;
+
+  if (s.mode === 'bite') {
+    s.biteT += dt;
+    const t = Math.min(s.biteT / 0.5, 1);
+    const openClose = Math.sin(t * Math.PI); // opens then closes
+    if (p.jaw) p.jaw.rotation.x = -openClose * 0.5;
+    else clark.scale.z = 1 + openClose * 0.08; // fallback: subtle lunge
+    if (t >= 1) { s.mode = 'walk'; clark.scale.z = 1; if (p.jaw) p.jaw.rotation.x = 0; }
+    return;
+  }
+
+  // Idle bob (used briefly at spawn and between wander legs)
+  const bob = Math.sin(s.time * 2.2) * 0.01;
+  clark.position.y = s.baseY + (s.mode === 'idle' ? bob : Math.abs(Math.sin(s.time * 4)) * 0.015);
+
+  if (s.mode === 'idle') {
+    if (p.head) p.head.rotation.y = Math.sin(s.time * 0.6) * 0.15;
+    if (s.time > 1.5) { s.mode = 'walk'; }
+    return;
+  }
+
+  // Walk toward target
+  const dx = s.target.x - clark.position.x;
+  const dz = s.target.z - clark.position.z;
+  const dist = Math.hypot(dx, dz);
+
+  if (dist < 0.05) {
+    s.mode = 'idle';
+    s.time = 0;
+    pickNewWanderTarget();
+    return;
+  }
+
+  const dirX = dx / dist, dirZ = dz / dist;
+  clark.position.x += dirX * WALK_SPEED * dt;
+  clark.position.z += dirZ * WALK_SPEED * dt;
+  const targetAngle = Math.atan2(dirX, dirZ);
+  clark.rotation.y += (targetAngle - clark.rotation.y) * Math.min(1, dt * 3);
+
+  // Limb swing if named parts exist; otherwise a whole-body sway fallback
+  const swing = Math.sin(s.time * 6) * 0.4;
+  if (p.legL) p.legL.rotation.x = swing;
+  if (p.legR) p.legR.rotation.x = -swing;
+  if (p.armL) p.armL.rotation.x = -swing * 0.6;
+  if (p.armR) p.armR.rotation.x = swing * 0.6;
+  if (!p.legL && !p.legR) clark.rotation.z = Math.sin(s.time * 6) * 0.03;
+}
+
+// ---------------------------------------------------------------
+// Ground the character on detected real-world surfaces so it can
+// step up onto furniture etc. Falls back to the reticle's last
+// known height if no plane mesh is under it.
+// ---------------------------------------------------------------
+const raycaster = new THREE.Raycaster();
+const downVec = new THREE.Vector3(0, -1, 0);
+const planeMeshes = []; // horizontal plane visual/collision meshes
+const wallMeshes = [];  // vertical planes treated as obstacles
+
+function groundClark() {
+  if (!clark || planeMeshes.length === 0) return;
+  raycaster.set(new THREE.Vector3(clark.position.x, clark.position.y + 1, clark.position.z), downVec);
+  const hits = raycaster.intersectObjects(planeMeshes, false);
+  if (hits.length > 0) {
+    // take the highest surface that's not a huge step up (so it climbs
+    // low furniture but doesn't teleport onto tables mid-stride)
+    const best = hits.reduce((a, b) => (b.point.y > a.point.y ? b : a));
+    if (Math.abs(best.point.y - clarkState.baseY) < 0.35) {
+      clarkState.baseY = best.point.y;
+    }
+  }
+}
+
+// ---------------------------------------------------------------
+// WebXR session setup: plane detection + hit test + hand tracking
+// ---------------------------------------------------------------
+let hitTestSource = null;
+let hitTestSourceRequested = false;
+let sessionActive = false;
+
+async function onSessionStart() {
+  sessionActive = true;
+  statusEl.textContent = 'Move your phone/headset to scan the room…';
+  const session = renderer.xr.getSession();
+  session.addEventListener('end', () => {
+    sessionActive = false;
+    hitTestSourceRequested = false;
+    hitTestSource = null;
+    statusEl.textContent = 'Session ended.';
+  });
+
+  // Controller trigger / select fallback (for controller-based headsets)
+  const controller = renderer.xr.getController(0);
+  controller.addEventListener('select', onPinchOrTrigger);
+  scene.add(controller);
+  const controller1 = renderer.xr.getController(1);
+  controller1.addEventListener('select', onPinchOrTrigger);
+  scene.add(controller1);
+}
+
+startBtn.addEventListener('click', async () => {
+  if (!navigator.xr) { statusEl.textContent = 'WebXR not available on this browser/device.'; return; }
+  try {
+    const session = await navigator.xr.requestSession('immersive-ar', {
+      requiredFeatures: ['hit-test', 'local-floor'],
+      optionalFeatures: ['plane-detection', 'hand-tracking', 'dom-overlay'],
+      domOverlay: { root: document.getElementById('overlay') },
+    });
+    await renderer.xr.setSession(session);
+    onSessionStart();
+  } catch (e) {
+    statusEl.textContent = 'Could not start AR session: ' + e.message;
+  }
+});
+
+// ---------------------------------------------------------------
+// Hand tracking pinch detection — no hand visuals are rendered,
+// only the joint math is used to detect a pinch gesture.
+// ---------------------------------------------------------------
+const hand0 = renderer.xr.getHand(0);
+const hand1 = renderer.xr.getHand(1);
+scene.add(hand0, hand1);
+let wasPinching = [false, false];
+
+function checkHandPinch(hand, idx) {
+  const thumb = hand.joints['thumb-tip'];
+  const index = hand.joints['index-finger-tip'];
+  if (!thumb || !index) return;
+  const dist = thumb.position.distanceTo(index.position);
+  const isPinching = dist < 0.025;
+  if (isPinching && !wasPinching[idx]) onPinchOrTrigger();
+  wasPinching[idx] = isPinching;
+}
+
+function onPinchOrTrigger() {
+  if (!reticle.visible) return;
+  if (!clark) {
+    const pos = new THREE.Vector3();
+    pos.setFromMatrixPosition(reticle.matrix);
+    spawnClark(pos);
+    statusEl.textContent = 'Captain Clark has entered the room.';
+  } else {
+    // If already spawned, a pinch/trigger aimed near the character bites
+    const box = new THREE.Box3().setFromObject(clark);
+    const camPos = new THREE.Vector3();
+    camera.getWorldPosition(camPos);
+    if (box.distanceToPoint(camPos) < 1.5) triggerBite();
+  }
+}
+
+// ---------------------------------------------------------------
+// Build/refresh collision meshes from detected planes each frame
+// ---------------------------------------------------------------
+function updateDetectedPlanes(frame, referenceSpace) {
+  if (!frame.detectedPlanes) return; // not supported on this device/browser
+
+  const seen = new Set();
+  for (const plane of frame.detectedPlanes) {
+    seen.add(plane);
+    const pose = frame.getPose(plane.planeSpace, referenceSpace);
+    if (!pose) continue;
+
+    let mesh = plane.userMesh;
+    const isHorizontal = plane.orientation === 'horizontal';
+    if (!mesh) {
+      const shape = new THREE.Shape(plane.polygon.map((p) => new THREE.Vector2(p.x, p.z)));
+      const geometry = new THREE.ShapeGeometry(shape);
+      geometry.rotateX(Math.PI / 2);
+      mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ visible: false }));
+      plane.userMesh = mesh;
+      scene.add(mesh);
+      (isHorizontal ? planeMeshes : wallMeshes).push(mesh);
+    }
+    mesh.matrix.fromArray(pose.transform.matrix);
+    mesh.matrix.decompose(mesh.position, mesh.quaternion, mesh.scale);
+  }
+
+  // Clean up planes no longer tracked
+  for (const list of [planeMeshes, wallMeshes]) {
+    for (let i = list.length - 1; i >= 0; i--) {
+      const stillTracked = [...seen].some((pl) => pl.userMesh === list[i]);
+      if (!stillTracked) {
+        scene.remove(list[i]);
+        list.splice(i, 1);
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------
+// Main render loop
+// ---------------------------------------------------------------
+let lastTime = 0;
+renderer.setAnimationLoop((time, frame) => {
+  const dt = Math.min((time - lastTime) / 1000, 0.1) || 0;
+  lastTime = time;
+
+  if (frame && sessionActive) {
+    const referenceSpace = renderer.xr.getReferenceSpace();
+    const session = renderer.xr.getSession();
+
+    // Hit test source (drives the placement reticle)
+    if (!hitTestSourceRequested) {
+      session.requestReferenceSpace('viewer').then((viewerSpace) => {
+        session.requestHitTestSource({ space: viewerSpace }).then((source) => {
+          hitTestSource = source;
+        });
+      });
+      session.requestAnimationFrame(() => {});
+      hitTestSourceRequested = true;
+    }
+
+    if (hitTestSource && !clark) {
+      const results = frame.getHitTestResults(hitTestSource);
+      if (results.length > 0) {
+        const hitPose = results[0].getPose(referenceSpace);
+        reticle.visible = true;
+        reticle.matrix.fromArray(hitPose.transform.matrix);
+      } else {
+        reticle.visible = false;
+      }
+    } else {
+      reticle.visible = false; // hide once spawned, no longer needed
+    }
+
+    updateDetectedPlanes(frame, referenceSpace);
+
+    // Hand pinch polling (no visual indicators rendered)
+    if (hand0.joints['index-finger-tip']) checkHandPinch(hand0, 0);
+    if (hand1.joints['index-finger-tip']) checkHandPinch(hand1, 1);
+  }
+
+  animateClark(dt);
+  groundClark();
+  if (clark && clarkState) clark.position.y = clarkState.baseY + (clark.position.y - (clarkState.baseY));
+
+  renderer.render(scene, camera);
+});
+
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>
