@@ -87,26 +87,89 @@ scene.add(reticle);
 // can move them individually; anything not found falls back to
 // animating the whole body as one piece.
 // ---------------------------------------------------------------
+// Manual fine-tune knobs — adjust these if the model still looks off
+// after the auto-centering below. MODEL_Y_OFFSET is in meters and is
+// applied AFTER auto-centering (positive = up, negative = down).
+const MODEL_SCALE = 1.0;
+const MODEL_Y_OFFSET = 0.0;
+const AUTO_SCALE_TO_HEIGHT = false; // set true + TARGET_HEIGHT to force a height
+const TARGET_HEIGHT = 1.8; // meters, only used if AUTO_SCALE_TO_HEIGHT is true
+
 let clarkTemplate = null;
 const mtlLoader = new MTLLoader();
 mtlLoader.load(MODEL_MTL_PATH, (materials) => {
   materials.preload();
+
+  // Fix common "invisible model" causes: forced transparency/opacity
+  // from a misread MTL "d" value, and backface culling hiding geometry
+  // when normals are flipped.
+  for (const key in materials.materials) {
+    const m = materials.materials[key];
+    m.side = THREE.DoubleSide;
+    m.transparent = false;
+    m.opacity = 1;
+    m.depthWrite = true;
+    if (m.map) m.map.colorSpace = THREE.SRGBColorSpace;
+  }
+
   const objLoader = new OBJLoader();
   objLoader.setMaterials(materials);
   objLoader.load(
     MODEL_OBJ_PATH,
     (obj) => {
       obj.traverse((c) => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
-      clarkTemplate = obj;
+
+      // Measure the raw model so we can tell what's actually going on.
+      let box = new THREE.Box3().setFromObject(obj);
+      let size = new THREE.Vector3();
+      let center = new THREE.Vector3();
+      box.getSize(size);
+      box.getCenter(center);
+      console.log('[CaptainClark] raw bounds:', { min: box.min, max: box.max, size, center });
+
+      if (size.length() === 0 || !isFinite(size.length())) {
+        statusEl.textContent = 'Model geometry looks empty — check the OBJ file.';
+        return;
+      }
+
+      let scale = MODEL_SCALE;
+      if (AUTO_SCALE_TO_HEIGHT && size.y > 0) {
+        scale = (TARGET_HEIGHT / size.y) * MODEL_SCALE;
+      }
+      obj.scale.setScalar(scale);
+
+      // Re-measure after scaling, then wrap in a pivot group so the
+      // model's FEET sit exactly at the pivot's local origin. This is
+      // what fixes "spawns floating in the air" — that happens when the
+      // model's own origin (from however it was authored) isn't at its
+      // feet, so placing the origin on the floor leaves the mesh offset
+      // above or below it.
+      box = new THREE.Box3().setFromObject(obj);
+      box.getSize(size);
+      box.getCenter(center);
+
+      obj.position.x -= center.x;
+      obj.position.z -= center.z;
+      obj.position.y -= box.min.y; // lowest point of mesh -> y = 0
+      obj.position.y += MODEL_Y_OFFSET;
+
+      const pivot = new THREE.Group();
+      pivot.add(obj);
+
+      const finalBox = new THREE.Box3().setFromObject(pivot);
+      console.log('[CaptainClark] after centering, feet should be at y=0:', finalBox.min, finalBox.max);
+
+      clarkTemplate = pivot;
       statusEl.textContent = 'Model loaded. Starting AR needs a WebXR headset/phone.';
       startBtn.disabled = false;
       startBtn.textContent = 'Enter AR';
     },
     undefined,
-    (err) => { statusEl.textContent = 'Failed to load OBJ: ' + err.message; }
+    (err) => { statusEl.textContent = 'Failed to load OBJ: ' + err.message; console.error(err); }
   );
 }, undefined, (err) => {
   statusEl.textContent = 'Failed to load MTL: ' + err.message;
+  console.error(err);
 });
 
 function findPart(root, keyword) {
@@ -128,6 +191,7 @@ function spawnClark(position) {
   clark = clarkTemplate.clone(true);
   clark.position.copy(position);
   scene.add(clark);
+  console.log('[CaptainClark] spawned at', clark.position, 'reticle matrix was', reticle.matrix.elements);
 
   clarkState = {
     mode: 'idle',
