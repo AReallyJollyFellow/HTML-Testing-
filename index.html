@@ -92,85 +92,119 @@ scene.add(reticle);
 // applied AFTER auto-centering (positive = up, negative = down).
 const MODEL_SCALE = 1.0;
 const MODEL_Y_OFFSET = 0.0;
-const AUTO_SCALE_TO_HEIGHT = false; // set true + TARGET_HEIGHT to force a height
-const TARGET_HEIGHT = 1.8; // meters, only used if AUTO_SCALE_TO_HEIGHT is true
+const AUTO_SCALE_TO_HEIGHT = true; // forces a sane real-world height regardless of the OBJ's export units
+const TARGET_HEIGHT = 1.9; // meters — tweak this; lower it if he's still clipping your ceiling
 
 let clarkTemplate = null;
-const mtlLoader = new MTLLoader();
-mtlLoader.load(MODEL_MTL_PATH, (materials) => {
-  materials.preload();
 
-  // Fix common "invisible model" causes: forced transparency/opacity
-  // from a misread MTL "d" value, and backface culling hiding geometry
-  // when normals are flipped.
-  for (const key in materials.materials) {
-    const m = materials.materials[key];
-    m.side = THREE.DoubleSide;
-    m.transparent = false;
-    m.opacity = 1;
-    m.depthWrite = true;
-    if (m.map) m.map.colorSpace = THREE.SRGBColorSpace;
-  }
-
-  const objLoader = new OBJLoader();
-  objLoader.setMaterials(materials);
-  objLoader.load(
-    MODEL_OBJ_PATH,
-    (obj) => {
-      obj.traverse((c) => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
-
-      // Measure the raw model so we can tell what's actually going on.
-      let box = new THREE.Box3().setFromObject(obj);
-      let size = new THREE.Vector3();
-      let center = new THREE.Vector3();
-      box.getSize(size);
-      box.getCenter(center);
-      console.log('[CaptainClark] raw bounds:', { min: box.min, max: box.max, size, center });
-
-      if (size.length() === 0 || !isFinite(size.length())) {
-        statusEl.textContent = 'Model geometry looks empty — check the OBJ file.';
-        return;
-      }
-
-      let scale = MODEL_SCALE;
-      if (AUTO_SCALE_TO_HEIGHT && size.y > 0) {
-        scale = (TARGET_HEIGHT / size.y) * MODEL_SCALE;
-      }
-      obj.scale.setScalar(scale);
-
-      // Re-measure after scaling, then wrap in a pivot group so the
-      // model's FEET sit exactly at the pivot's local origin. This is
-      // what fixes "spawns floating in the air" — that happens when the
-      // model's own origin (from however it was authored) isn't at its
-      // feet, so placing the origin on the floor leaves the mesh offset
-      // above or below it.
-      box = new THREE.Box3().setFromObject(obj);
-      box.getSize(size);
-      box.getCenter(center);
-
-      obj.position.x -= center.x;
-      obj.position.z -= center.z;
-      obj.position.y -= box.min.y; // lowest point of mesh -> y = 0
-      obj.position.y += MODEL_Y_OFFSET;
-
-      const pivot = new THREE.Group();
-      pivot.add(obj);
-
-      const finalBox = new THREE.Box3().setFromObject(pivot);
-      console.log('[CaptainClark] after centering, feet should be at y=0:', finalBox.min, finalBox.max);
-
-      clarkTemplate = pivot;
-      statusEl.textContent = 'Model loaded. Starting AR needs a WebXR headset/phone.';
-      startBtn.disabled = false;
-      startBtn.textContent = 'Enter AR';
-    },
-    undefined,
-    (err) => { statusEl.textContent = 'Failed to load OBJ: ' + err.message; console.error(err); }
+// MTL files exported from Blender/Max/etc frequently reference textures
+// using the ORIGINAL absolute path from the artist's computer
+// (e.g. "C:\Users\name\Desktop\textures\skin.png") or backslashes.
+// The browser can't resolve that, the texture silently fails to load,
+// and the mesh renders solid black. This strips every map_* line down
+// to just the filename so it resolves relative to the .mtl instead.
+function sanitizeMtlTexturePaths(mtlText) {
+  return mtlText.replace(
+    /^(map_Ka|map_Kd|map_Ks|map_Ns|map_bump|bump|map_d|disp|decal|refl|norm)\s+(.+)$/gim,
+    (full, directive, pathPart) => {
+      const cleanPath = pathPart.trim().replace(/\\/g, '/');
+      const filename = cleanPath.split('/').pop();
+      console.log(`[CaptainClark] MTL texture path fixed: "${pathPart.trim()}" -> "${filename}"`);
+      return `${directive} ${filename}`;
+    }
   );
-}, undefined, (err) => {
-  statusEl.textContent = 'Failed to load MTL: ' + err.message;
-  console.error(err);
-});
+}
+
+const mtlDir = MODEL_MTL_PATH.substring(0, MODEL_MTL_PATH.lastIndexOf('/') + 1) || './';
+
+fetch(MODEL_MTL_PATH)
+  .then((res) => {
+    if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${MODEL_MTL_PATH}`);
+    return res.text();
+  })
+  .then((rawMtl) => {
+    const cleanMtl = sanitizeMtlTexturePaths(rawMtl);
+
+    const manager = new THREE.LoadingManager();
+    manager.onError = (url) => console.error('[CaptainClark] FAILED TO LOAD TEXTURE:', url,
+      '— check that this exact filename (case-sensitive) exists in', mtlDir, 'and is a browser-supported format (png/jpg, not tga/bmp/dds)');
+
+    const mtlLoader = new MTLLoader(manager);
+    mtlLoader.setPath(mtlDir);
+    mtlLoader.setResourcePath(mtlDir);
+    const materials = mtlLoader.parse(cleanMtl, mtlDir);
+    materials.preload();
+
+    for (const key in materials.materials) {
+      const m = materials.materials[key];
+      m.side = THREE.DoubleSide;
+      m.transparent = false;
+      m.opacity = 1;
+      m.depthWrite = true;
+      if (m.map) m.map.colorSpace = THREE.SRGBColorSpace;
+      console.log('[CaptainClark] material', key, 'map loaded:', !!m.map, m.map ? m.map.image?.src : '(no texture on this material)');
+    }
+
+    const objLoader = new OBJLoader(manager);
+    objLoader.setMaterials(materials);
+    objLoader.load(
+      MODEL_OBJ_PATH,
+      (obj) => {
+        obj.traverse((c) => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
+
+        // Measure the raw model so we can tell what's actually going on.
+        let box = new THREE.Box3().setFromObject(obj);
+        let size = new THREE.Vector3();
+        let center = new THREE.Vector3();
+        box.getSize(size);
+        box.getCenter(center);
+        console.log('[CaptainClark] raw bounds:', { min: box.min, max: box.max, size, center });
+
+        if (size.length() === 0 || !isFinite(size.length())) {
+          statusEl.textContent = 'Model geometry looks empty — check the OBJ file.';
+          return;
+        }
+
+        let scale = MODEL_SCALE;
+        if (AUTO_SCALE_TO_HEIGHT && size.y > 0) {
+          scale = (TARGET_HEIGHT / size.y) * MODEL_SCALE;
+        }
+        obj.scale.setScalar(scale);
+
+        // Re-measure after scaling, then wrap in a pivot group so the
+        // model's FEET sit exactly at the pivot's local origin. This is
+        // what fixes "spawns floating in the air" — that happens when the
+        // model's own origin (from however it was authored) isn't at its
+        // feet, so placing the origin on the floor leaves the mesh offset
+        // above or below it.
+        box = new THREE.Box3().setFromObject(obj);
+        box.getSize(size);
+        box.getCenter(center);
+
+        obj.position.x -= center.x;
+        obj.position.z -= center.z;
+        obj.position.y -= box.min.y; // lowest point of mesh -> y = 0
+        obj.position.y += MODEL_Y_OFFSET;
+
+        const pivot = new THREE.Group();
+        pivot.add(obj);
+
+        const finalBox = new THREE.Box3().setFromObject(pivot);
+        console.log('[CaptainClark] after scale+centering, final height:', finalBox.max.y - finalBox.min.y, 'feet at y=0:', finalBox.min, finalBox.max);
+
+        clarkTemplate = pivot;
+        statusEl.textContent = 'Model loaded. Starting AR needs a WebXR headset/phone.';
+        startBtn.disabled = false;
+        startBtn.textContent = 'Enter AR';
+      },
+      undefined,
+      (err) => { statusEl.textContent = 'Failed to load OBJ: ' + err.message; console.error(err); }
+    );
+  })
+  .catch((err) => {
+    statusEl.textContent = 'Failed to load MTL: ' + err.message;
+    console.error(err);
+  });
 
 function findPart(root, keyword) {
   let found = null;
