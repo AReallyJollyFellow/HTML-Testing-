@@ -95,6 +95,12 @@ const MODEL_Y_OFFSET = 0.0;
 const AUTO_SCALE_TO_HEIGHT = true; // forces a sane real-world height regardless of the OBJ's export units
 const TARGET_HEIGHT = 1.9; // meters — tweak this; lower it if he's still clipping your ceiling
 
+// If he's facing/walking backwards, the model's own "forward" doesn't
+// match the direction our movement code assumes (+Z). Rotate it here in
+// 90° steps until he faces his direction of travel. Try Math.PI first
+// (that fixes the most common case: exported facing exactly opposite).
+const MODEL_FORWARD_OFFSET = Math.PI;
+
 let clarkTemplate = null;
 
 // MTL files exported from Blender/Max/etc frequently reference textures
@@ -185,6 +191,7 @@ fetch(MODEL_MTL_PATH)
         obj.position.z -= center.z;
         obj.position.y -= box.min.y; // lowest point of mesh -> y = 0
         obj.position.y += MODEL_Y_OFFSET;
+        obj.rotation.y = MODEL_FORWARD_OFFSET;
 
         const pivot = new THREE.Group();
         pivot.add(obj);
@@ -266,8 +273,10 @@ function triggerBite() {
 
 // ---------------------------------------------------------------
 // Procedural animation — idle / walk / bite.
-// This is original code-driven motion, not motion-captured or
-// copied animation data.
+// This is original code-driven motion built to evoke Captain Clark's
+// slow, hunched, lumbering presence — it is NOT copied or extracted
+// from the film's actual animation/motion-capture data, which isn't
+// something I have access to or would reproduce.
 // ---------------------------------------------------------------
 function animateClark(dt) {
   if (!clark || !clarkState) return;
@@ -276,25 +285,37 @@ function animateClark(dt) {
 
   if (s.mode === 'bite') {
     s.biteT += dt;
-    const t = Math.min(s.biteT / 0.5, 1);
-    const openClose = Math.sin(t * Math.PI); // opens then closes
-    if (p.jaw) p.jaw.rotation.x = -openClose * 0.5;
-    else clark.scale.z = 1 + openClose * 0.08; // fallback: subtle lunge
-    if (t >= 1) { s.mode = 'walk'; clark.scale.z = 1; if (p.jaw) p.jaw.rotation.x = 0; }
+    const t = Math.min(s.biteT / 0.6, 1);
+    const lunge = Math.sin(t * Math.PI); // forward snap then recoil
+    if (p.head) p.head.rotation.x = -lunge * 0.6;
+    if (p.jaw) p.jaw.rotation.x = -lunge * 0.7;
+    if (!p.head && !p.jaw) clark.rotation.x = -lunge * 0.25; // fallback: whole body lunges
+    if (t >= 1) {
+      s.mode = 'walk';
+      if (p.head) p.head.rotation.x = 0;
+      if (p.jaw) p.jaw.rotation.x = 0;
+      clark.rotation.x = 0;
+    }
     return;
   }
-
-  // Idle bob (used briefly at spawn and between wander legs)
-  const bob = Math.sin(s.time * 2.2) * 0.01;
-  clark.position.y = s.baseY + (s.mode === 'idle' ? bob : Math.abs(Math.sin(s.time * 4)) * 0.015);
 
   if (s.mode === 'idle') {
-    if (p.head) p.head.rotation.y = Math.sin(s.time * 0.6) * 0.15;
-    if (s.time > 1.5) { s.mode = 'walk'; }
+    // Hunched, sniffing stance: slow heavy breathing bob + occasional
+    // head dip like it's scenting the air, rather than standing still.
+    const breathe = Math.sin(s.time * 1.4) * 0.012;
+    clark.position.y = s.baseY + breathe;
+    const sniff = Math.max(0, Math.sin(s.time * 0.9)) * 0.25;
+    if (p.head) {
+      p.head.rotation.x = sniff * 0.4;
+      p.head.rotation.y = Math.sin(s.time * 0.35) * 0.2;
+    } else {
+      clark.rotation.x = sniff * 0.08;
+    }
+    if (s.time > 2.5) { s.mode = 'walk'; s.strideTime = 0; }
     return;
   }
 
-  // Walk toward target
+  // --- Walk: slow, heavy, lumbering ---
   const dx = s.target.x - clark.position.x;
   const dz = s.target.z - clark.position.z;
   const dist = Math.hypot(dx, dz);
@@ -306,19 +327,32 @@ function animateClark(dt) {
     return;
   }
 
+  s.strideTime = (s.strideTime || 0) + dt;
+  const strideFreq = 2.2; // slow cadence, not a normal human walk speed
+  const stride = s.strideTime * strideFreq;
+
   const dirX = dx / dist, dirZ = dz / dist;
   clark.position.x += dirX * WALK_SPEED * dt;
   clark.position.z += dirZ * WALK_SPEED * dt;
-  const targetAngle = Math.atan2(dirX, dirZ);
+  const targetAngle = Math.atan2(dirX, dirZ) + MODEL_FORWARD_OFFSET - Math.PI;
   clark.rotation.y += (targetAngle - clark.rotation.y) * Math.min(1, dt * 3);
 
-  // Limb swing if named parts exist; otherwise a whole-body sway fallback
-  const swing = Math.sin(s.time * 6) * 0.4;
+  // heavy vertical lurch each step + slight forward hunch while moving
+  clark.position.y = s.baseY + Math.abs(Math.sin(stride)) * 0.03;
+  clark.rotation.x = 0.12; // forward-hunched lumbering lean
+
+  const swing = Math.sin(stride) * 0.55;
+  const counterSwing = Math.sin(stride + Math.PI) * 0.55;
   if (p.legL) p.legL.rotation.x = swing;
-  if (p.legR) p.legR.rotation.x = -swing;
-  if (p.armL) p.armL.rotation.x = -swing * 0.6;
-  if (p.armR) p.armR.rotation.x = swing * 0.6;
-  if (!p.legL && !p.legR) clark.rotation.z = Math.sin(s.time * 6) * 0.03;
+  if (p.legR) p.legR.rotation.x = counterSwing;
+  if (p.armL) p.armL.rotation.x = counterSwing * 0.7;
+  if (p.armR) p.armR.rotation.x = swing * 0.7;
+  if (p.head) p.head.rotation.y = Math.sin(stride * 0.5) * 0.1;
+
+  // Fallback whole-body sway when no named limb parts exist at all
+  if (!p.legL && !p.legR && !p.armL && !p.armR) {
+    clark.rotation.z = Math.sin(stride) * 0.05;
+  }
 }
 
 // ---------------------------------------------------------------
