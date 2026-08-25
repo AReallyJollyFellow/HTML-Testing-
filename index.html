@@ -2,554 +2,716 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Backrooms AR — Captain Clark</title>
+<title>VHS // STATIC LINE</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
 <style>
-  html, body { margin: 0; padding: 0; overflow: hidden; height: 100%; background: #000; }
+  html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#000; font-family: 'Courier New', monospace; }
   #overlay {
-    position: fixed; top: 0; left: 0; width: 100%; padding: 12px;
-    font-family: -apple-system, sans-serif; color: #fff; text-align: center;
-    pointer-events: none; text-shadow: 0 1px 3px #000; z-index: 10;
+    position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    color:#9dff9d; text-align:center; z-index:10; background:radial-gradient(ellipse at center, #001a00 0%, #000 100%);
   }
-  #status { font-size: 14px; opacity: 0.85; }
-  #start-btn {
-    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-    padding: 14px 28px; font-size: 16px; border-radius: 30px; border: none;
-    background: #ff4444; color: #fff; font-family: sans-serif; z-index: 20;
+  #overlay h1 { letter-spacing:4px; font-size:1.4em; text-shadow:0 0 8px #4dff4d; }
+  #overlay p { max-width:520px; line-height:1.5; font-size:0.85em; color:#7fcf7f; padding:0 20px; }
+  #startBtn {
+    margin-top:20px; padding:14px 30px; font-family:inherit; font-size:1em; letter-spacing:2px;
+    background:#001a00; color:#9dff9d; border:1px solid #4dff4d; cursor:pointer; text-transform:uppercase;
   }
-  #start-btn:disabled { background: #555; }
+  #startBtn:hover { background:#0a2a0a; }
+  #status { position:fixed; bottom:8px; left:8px; color:#4dff4d; font-size:11px; z-index:20; opacity:0.8; pointer-events:none; white-space:pre; }
+  #hint { position:fixed; top:8px; left:8px; color:#4dff4d; font-size:11px; z-index:20; opacity:0.8; pointer-events:none; }
+  .unsupported { color:#ff5555 !important; }
 </style>
 </head>
 <body>
 
-<div id="overlay"><div id="status">Loading model…</div></div>
-<button id="start-btn" disabled>Loading…</button>
+<div id="overlay">
+  <h1>▚ STATIC LINE ▚</h1>
+  <p>
+    A rotary phone is somewhere nearby, above the floor.
+    Point your headset around a desk, table, or shelf to find it.
+    Pinch it with your fingers to pick it up. Something will answer.
+  </p>
+  <button id="startBtn">ENTER MIXED REALITY</button>
+  <p id="reqs" style="font-size:0.7em; opacity:0.7;">Requires Meta Quest Browser (or another WebXR AR + hand-tracking capable browser), served over HTTPS.</p>
+</div>
+
+<div id="status"></div>
+<div id="hint"></div>
 
 <script type="importmap">
 {
   "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+    "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js"
   }
 }
 </script>
 
 <script type="module">
 import * as THREE from 'three';
-import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
+import { ARButton } from 'three/addons/webxr/ARButton.js';
+import { XREstimatedLight } from 'three/addons/webxr/XREstimatedLight.js';
+import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
+import * as CANNON from 'cannon-es';
 
-// ---------------------------------------------------------------
-// CONFIG — point these at your files. They must sit next to this
-// HTML file (e.g. same GitHub repo folder), and the .mtl's texture
-// references must be relative paths that resolve the same way.
-// ---------------------------------------------------------------
-const MODEL_OBJ_PATH = './CaptainClark.obj';
-const MODEL_MTL_PATH = './CaptainClark.mtl';
-const WALK_SPEED = 0.12;          // meters/sec, "slowly"
-const ROAM_RADIUS = 2.0;          // how far it wanders from spawn point
-const BITE_COOLDOWN = 4.0;        // seconds between allowed bites
+/* ------------------------------------------------------------------
+   GLOBAL STATE
+------------------------------------------------------------------ */
+let renderer, scene, camera;
+let reticle, hitTestSource = null, hitTestSourceRequested = false;
+let floorY = null;              // estimated real floor height (world Y)
+let placed = false;             // has the phone been placed?
+let phoneGroup, handsetGroup, baseGroup, cordMesh;
+let physicsWorld, cordBodies = [], cordConstraints = [], handsetBody, anchorBody;
+let handModels = [], handJointsL = null, handJointsR = null;
+let grabbedHand = null;         // 'left' | 'right' | null
+let lastGrabPos = new THREE.Vector3();
+let lastGrabTime = 0;
+let estimatedLight;
+let audioListener, positionalAudio, videoEl;
+let hasRung = false;
+let spotLight, bulbFlickerT = 0;
+let vhsMaterial, vhsQuad;
+let statusEl = document.getElementById('status');
+let hintEl = document.getElementById('hint');
+let clock = new THREE.Clock();
+const CORD_SEGMENTS = 14;
+const CORD_SEG_LEN = 0.03;
+const PINCH_THRESHOLD = 0.028;   // meters between thumb & index tip
+const GRAB_RADIUS = 0.14;        // meters from handset center to trigger grab
 
-const statusEl = document.getElementById('status');
-const startBtn = document.getElementById('start-btn');
+/* ------------------------------------------------------------------
+   BOOT
+------------------------------------------------------------------ */
+document.getElementById('startBtn').addEventListener('click', init);
 
-// ---------------------------------------------------------------
-// Renderer / scene / camera
-// ---------------------------------------------------------------
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.01, 20);
-
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-renderer.setPixelRatio(devicePixelRatio);
-renderer.setSize(innerWidth, innerHeight);
-renderer.xr.enabled = true;
-document.body.appendChild(renderer.domElement);
-
-scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.0));
-const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-dirLight.position.set(1, 2, 1);
-scene.add(dirLight);
-
-// ---------------------------------------------------------------
-// Reticle — the placement indicator shown once the session starts
-// ---------------------------------------------------------------
-const reticle = new THREE.Mesh(
-  new THREE.RingGeometry(0.08, 0.10, 32).rotateX(-Math.PI / 2),
-  new THREE.MeshBasicMaterial({ color: 0xff3333 })
-);
-reticle.matrixAutoUpdate = false;
-reticle.visible = false;
-scene.add(reticle);
-
-// ---------------------------------------------------------------
-// Load the model (no auto-rig — OBJ has no skeleton data to rig).
-// We look for sub-groups that might be named head/arm/leg/jaw so we
-// can move them individually; anything not found falls back to
-// animating the whole body as one piece.
-// ---------------------------------------------------------------
-// Manual fine-tune knobs — adjust these if the model still looks off
-// after the auto-centering below. MODEL_Y_OFFSET is in meters and is
-// applied AFTER auto-centering (positive = up, negative = down).
-const MODEL_SCALE = 1.2;
-const MODEL_Y_OFFSET = 0.0;
-const AUTO_SCALE_TO_HEIGHT = true; // forces a sane real-world height regardless of the OBJ's export units
-const TARGET_HEIGHT = 1.9; // meters — tweak this; lower it if he's still clipping your ceiling
-
-// If he's facing/walking backwards, the model's own "forward" doesn't
-// match the direction our movement code assumes (+Z). Rotate it here in
-// 90° steps until he faces his direction of travel. Try Math.PI first
-// (that fixes the most common case: exported facing exactly opposite).
-const MODEL_FORWARD_OFFSET = Math.PI;
-
-let clarkTemplate = null;
-
-// MTL files exported from Blender/Max/etc frequently reference textures
-// using the ORIGINAL absolute path from the artist's computer
-// (e.g. "C:\Users\name\Desktop\textures\skin.png") or backslashes.
-// The browser can't resolve that, the texture silently fails to load,
-// and the mesh renders solid black. This strips every map_* line down
-// to just the filename so it resolves relative to the .mtl instead.
-function sanitizeMtlTexturePaths(mtlText) {
-  return mtlText.replace(
-    /^(map_Ka|map_Kd|map_Ks|map_Ns|map_bump|bump|map_d|disp|decal|refl|norm)\s+(.+)$/gim,
-    (full, directive, pathPart) => {
-      const cleanPath = pathPart.trim().replace(/\\/g, '/');
-      const filename = cleanPath.split('/').pop();
-      console.log(`[CaptainClark] MTL texture path fixed: "${pathPart.trim()}" -> "${filename}"`);
-      return `${directive} ${filename}`;
-    }
-  );
+function log(msg) {
+  statusEl.textContent = msg;
+  console.log('[VHS-PHONE]', msg);
 }
 
-const mtlDir = MODEL_MTL_PATH.substring(0, MODEL_MTL_PATH.lastIndexOf('/') + 1) || './';
+async function init() {
+  document.getElementById('overlay').style.display = 'none';
 
-fetch(MODEL_MTL_PATH)
-  .then((res) => {
-    if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${MODEL_MTL_PATH}`);
-    return res.text();
-  })
-  .then((rawMtl) => {
-    const cleanMtl = sanitizeMtlTexturePaths(rawMtl);
+  scene = new THREE.Scene();
 
-    const manager = new THREE.LoadingManager();
-    manager.onError = (url) => console.error('[CaptainClark] FAILED TO LOAD TEXTURE:', url,
-      '— check that this exact filename (case-sensitive) exists in', mtlDir, 'and is a browser-supported format (png/jpg, not tga/bmp/dds)');
+  camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 40);
 
-    const mtlLoader = new MTLLoader(manager);
-    mtlLoader.setPath(mtlDir);
-    mtlLoader.setResourcePath(mtlDir);
-    const materials = mtlLoader.parse(cleanMtl, mtlDir);
-    materials.preload();
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.xr.enabled = true;
+  renderer.autoClear = true;
+  document.body.appendChild(renderer.domElement);
 
-    for (const key in materials.materials) {
-      const m = materials.materials[key];
-      m.side = THREE.DoubleSide;
-      m.transparent = false;
-      m.opacity = 1;
-      m.depthWrite = true;
-      if (m.map) m.map.colorSpace = THREE.SRGBColorSpace;
-      console.log('[CaptainClark] material', key, 'map loaded:', !!m.map, m.map ? m.map.image?.src : '(no texture on this material)');
-    }
-
-    const objLoader = new OBJLoader(manager);
-    objLoader.setMaterials(materials);
-    objLoader.load(
-      MODEL_OBJ_PATH,
-      (obj) => {
-        obj.traverse((c) => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
-
-        // Measure the raw model so we can tell what's actually going on.
-        let box = new THREE.Box3().setFromObject(obj);
-        let size = new THREE.Vector3();
-        let center = new THREE.Vector3();
-        box.getSize(size);
-        box.getCenter(center);
-        console.log('[CaptainClark] raw bounds:', { min: box.min, max: box.max, size, center });
-
-        if (size.length() === 0 || !isFinite(size.length())) {
-          statusEl.textContent = 'Model geometry looks empty — check the OBJ file.';
-          return;
-        }
-
-        let scale = MODEL_SCALE;
-        if (AUTO_SCALE_TO_HEIGHT && size.y > 0) {
-          scale = (TARGET_HEIGHT / size.y) * MODEL_SCALE;
-        }
-        obj.scale.setScalar(scale);
-
-        // Re-measure after scaling, then wrap in a pivot group so the
-        // model's FEET sit exactly at the pivot's local origin. This is
-        // what fixes "spawns floating in the air" — that happens when the
-        // model's own origin (from however it was authored) isn't at its
-        // feet, so placing the origin on the floor leaves the mesh offset
-        // above or below it.
-        box = new THREE.Box3().setFromObject(obj);
-        box.getSize(size);
-        box.getCenter(center);
-
-        obj.position.x -= center.x;
-        obj.position.z -= center.z;
-        obj.position.y -= box.min.y; // lowest point of mesh -> y = 0
-        obj.position.y += MODEL_Y_OFFSET;
-        obj.rotation.y = MODEL_FORWARD_OFFSET;
-
-        const pivot = new THREE.Group();
-        pivot.add(obj);
-
-        const finalBox = new THREE.Box3().setFromObject(pivot);
-        console.log('[CaptainClark] after scale+centering, final height:', finalBox.max.y - finalBox.min.y, 'feet at y=0:', finalBox.min, finalBox.max);
-
-        clarkTemplate = pivot;
-        statusEl.textContent = 'Model loaded. Starting AR needs a WebXR headset/phone.';
-        startBtn.disabled = false;
-        startBtn.textContent = 'Enter AR';
-      },
-      undefined,
-      (err) => { statusEl.textContent = 'Failed to load OBJ: ' + err.message; console.error(err); }
-    );
-  })
-  .catch((err) => {
-    statusEl.textContent = 'Failed to load MTL: ' + err.message;
-    console.error(err);
-  });
-
-function findPart(root, keyword) {
-  let found = null;
-  root.traverse((c) => {
-    if (!found && c.name && c.name.toLowerCase().includes(keyword)) found = c;
-  });
-  return found;
-}
-
-// ---------------------------------------------------------------
-// Spawned character state
-// ---------------------------------------------------------------
-let clark = null;
-let clarkState = null; // { mode, target, spawnPoint, lastBite, parts }
-
-function spawnClark(position) {
-  if (!clarkTemplate || clark) return;
-  clark = clarkTemplate.clone(true);
-  clark.position.copy(position);
-  scene.add(clark);
-  console.log('[CaptainClark] spawned at', clark.position, 'reticle matrix was', reticle.matrix.elements);
-
-  clarkState = {
-    mode: 'idle',
-    spawnPoint: position.clone(),
-    target: position.clone(),
-    lastBite: -999,
-    time: 0,
-    parts: {
-      head: findPart(clark, 'head'),
-      jaw: findPart(clark, 'jaw'),
-      armL: findPart(clark, 'arm_l') || findPart(clark, 'armleft'),
-      armR: findPart(clark, 'arm_r') || findPart(clark, 'armright'),
-      legL: findPart(clark, 'leg_l') || findPart(clark, 'legleft'),
-      legR: findPart(clark, 'leg_r') || findPart(clark, 'legright'),
-    },
-    baseY: position.y,
+  const sessionInit = {
+    requiredFeatures: ['hit-test'],
+    optionalFeatures: [
+      'hand-tracking',
+      'light-estimation',
+      'plane-detection',
+      'anchors',
+      'dom-overlay'
+    ],
+    domOverlay: { root: document.body }
   };
-  pickNewWanderTarget();
+
+  const arButton = ARButton.createButton(renderer, sessionInit);
+  arButton.style.display = 'none'; // we trigger it programmatically
+  document.body.appendChild(arButton);
+  arButton.click();
+
+  renderer.xr.addEventListener('sessionstart', onSessionStart);
+  renderer.xr.addEventListener('sessionend', onSessionEnd);
+
+  setupLighting();
+  setupReticle();
+  setupPhone();
+  setupPhysics();
+  setupHands();
+  setupAudioVideo();
+  setupVHSOverlay();
+
+  window.addEventListener('resize', onResize);
+  renderer.setAnimationLoop(render);
 }
 
-function pickNewWanderTarget() {
-  const angle = Math.random() * Math.PI * 2;
-  const dist = Math.random() * ROAM_RADIUS;
-  clarkState.target.set(
-    clarkState.spawnPoint.x + Math.cos(angle) * dist,
-    0,
-    clarkState.spawnPoint.z + Math.sin(angle) * dist
-  );
+function onResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-function triggerBite() {
-  if (!clarkState) return;
-  if (clarkState.time - clarkState.lastBite < BITE_COOLDOWN) return;
-  clarkState.lastBite = clarkState.time;
-  clarkState.mode = 'bite';
-  clarkState.biteT = 0;
-}
-
-// ---------------------------------------------------------------
-// Procedural animation — idle / walk / bite.
-// This is original code-driven motion built to evoke Captain Clark's
-// slow, hunched, lumbering presence — it is NOT copied or extracted
-// from the film's actual animation/motion-capture data, which isn't
-// something I have access to or would reproduce.
-// ---------------------------------------------------------------
-function animateClark(dt) {
-  if (!clark || !clarkState) return;
-  clarkState.time += dt;
-  const s = clarkState, p = s.parts;
-
-  if (s.mode === 'bite') {
-    s.biteT += dt;
-    const t = Math.min(s.biteT / 0.6, 1);
-    const lunge = Math.sin(t * Math.PI); // forward snap then recoil
-    if (p.head) p.head.rotation.x = -lunge * 0.6;
-    if (p.jaw) p.jaw.rotation.x = -lunge * 0.7;
-    if (!p.head && !p.jaw) clark.rotation.x = -lunge * 0.25; // fallback: whole body lunges
-    if (t >= 1) {
-      s.mode = 'walk';
-      if (p.head) p.head.rotation.x = 0;
-      if (p.jaw) p.jaw.rotation.x = 0;
-      clark.rotation.x = 0;
+/* ------------------------------------------------------------------
+   LIGHTING: real-world light estimation (WebXR light-estimation API)
+   -> drives both scene lighting AND PBR reflections (scene.environment)
+------------------------------------------------------------------ */
+function setupLighting() {
+  estimatedLight = new XREstimatedLight(renderer);
+  estimatedLight.addEventListener('estimationstart', () => {
+    // Real-world-derived environment map -> used for material reflections.
+    scene.add(estimatedLight);
+    if (estimatedLight.environment) {
+      scene.environment = estimatedLight.environment;
     }
-    return;
-  }
-
-  if (s.mode === 'idle') {
-    // Hunched, sniffing stance: slow heavy breathing bob + occasional
-    // head dip like it's scenting the air, rather than standing still.
-    const breathe = Math.sin(s.time * 1.4) * 0.012;
-    clark.position.y = s.baseY + breathe;
-    const sniff = Math.max(0, Math.sin(s.time * 0.9)) * 0.25;
-    if (p.head) {
-      p.head.rotation.x = sniff * 0.4;
-      p.head.rotation.y = Math.sin(s.time * 0.35) * 0.2;
-    } else {
-      clark.rotation.x = sniff * 0.08;
-    }
-    if (s.time > 2.5) { s.mode = 'walk'; s.strideTime = 0; }
-    return;
-  }
-
-  // --- Walk: slow, heavy, lumbering ---
-  const dx = s.target.x - clark.position.x;
-  const dz = s.target.z - clark.position.z;
-  const dist = Math.hypot(dx, dz);
-
-  if (dist < 0.05) {
-    s.mode = 'idle';
-    s.time = 0;
-    pickNewWanderTarget();
-    return;
-  }
-
-  s.strideTime = (s.strideTime || 0) + dt;
-  const strideFreq = 2.2; // slow cadence, not a normal human walk speed
-  const stride = s.strideTime * strideFreq;
-
-  const dirX = dx / dist, dirZ = dz / dist;
-  clark.position.x += dirX * WALK_SPEED * dt;
-  clark.position.z += dirZ * WALK_SPEED * dt;
-  const targetAngle = Math.atan2(dirX, dirZ) + MODEL_FORWARD_OFFSET - Math.PI;
-  clark.rotation.y += (targetAngle - clark.rotation.y) * Math.min(1, dt * 3);
-
-  // heavy vertical lurch each step + slight forward hunch while moving
-  clark.position.y = s.baseY + Math.abs(Math.sin(stride)) * 0.03;
-  clark.rotation.x = 0.12; // forward-hunched lumbering lean
-
-  const swing = Math.sin(stride) * 0.55;
-  const counterSwing = Math.sin(stride + Math.PI) * 0.55;
-  if (p.legL) p.legL.rotation.x = swing;
-  if (p.legR) p.legR.rotation.x = counterSwing;
-  if (p.armL) p.armL.rotation.x = counterSwing * 0.7;
-  if (p.armR) p.armR.rotation.x = swing * 0.7;
-  if (p.head) p.head.rotation.y = Math.sin(stride * 0.5) * 0.1;
-
-  // Fallback whole-body sway when no named limb parts exist at all
-  if (!p.legL && !p.legR && !p.armL && !p.armR) {
-    clark.rotation.z = Math.sin(stride) * 0.05;
-  }
-}
-
-// ---------------------------------------------------------------
-// Ground the character on detected real-world surfaces so it can
-// step up onto furniture etc. Falls back to the reticle's last
-// known height if no plane mesh is under it.
-// ---------------------------------------------------------------
-const raycaster = new THREE.Raycaster();
-const downVec = new THREE.Vector3(0, -1, 0);
-const planeMeshes = []; // horizontal plane visual/collision meshes
-const wallMeshes = [];  // vertical planes treated as obstacles
-
-function groundClark() {
-  if (!clark || planeMeshes.length === 0) return;
-  raycaster.set(new THREE.Vector3(clark.position.x, clark.position.y + 1, clark.position.z), downVec);
-  const hits = raycaster.intersectObjects(planeMeshes, false);
-  if (hits.length > 0) {
-    // take the highest surface that's not a huge step up (so it climbs
-    // low furniture but doesn't teleport onto tables mid-stride)
-    const best = hits.reduce((a, b) => (b.point.y > a.point.y ? b : a));
-    if (Math.abs(best.point.y - clarkState.baseY) < 0.35) {
-      clarkState.baseY = best.point.y;
-    }
-  }
-}
-
-// ---------------------------------------------------------------
-// WebXR session setup: plane detection + hit test + hand tracking
-// ---------------------------------------------------------------
-let hitTestSource = null;
-let hitTestSourceRequested = false;
-let sessionActive = false;
-
-async function onSessionStart() {
-  sessionActive = true;
-  statusEl.textContent = 'Move your phone/headset to scan the room…';
-  const session = renderer.xr.getSession();
-  session.addEventListener('end', () => {
-    sessionActive = false;
-    hitTestSourceRequested = false;
-    hitTestSource = null;
-    statusEl.textContent = 'Session ended.';
+    // Fall back ambient stays low so estimated light dominates when available.
+    fallbackAmbient.intensity = 0.05;
+    log('Light estimation active — reflections now follow your real lighting.');
+  });
+  estimatedLight.addEventListener('estimationend', () => {
+    scene.remove(estimatedLight);
+    scene.environment = null;
+    fallbackAmbient.intensity = 0.6;
   });
 
-  // Controller trigger / select fallback (for controller-based headsets)
-  const controller = renderer.xr.getController(0);
-  controller.addEventListener('select', onPinchOrTrigger);
-  scene.add(controller);
-  const controller1 = renderer.xr.getController(1);
-  controller1.addEventListener('select', onPinchOrTrigger);
-  scene.add(controller1);
+  // Fallback ambient in case the browser/device has no light-estimation support.
+  var fallbackAmbient = new THREE.AmbientLight(0x223322, 0.6);
+  scene.add(fallbackAmbient);
+  window.fallbackAmbient = fallbackAmbient;
+
+  // "Spotlight from the roof" — added once the phone is placed (see placePhone()).
+  spotLight = new THREE.SpotLight(0xbfe8ff, 0, 8, Math.PI / 10, 0.4, 1.2);
+  spotLight.castShadow = true;
+  spotLight.shadow.mapSize.set(1024, 1024);
+  spotLight.shadow.bias = -0.001;
+  scene.add(spotLight);
+  scene.add(spotLight.target);
 }
 
-startBtn.addEventListener('click', async () => {
-  if (!navigator.xr) { statusEl.textContent = 'WebXR not available on this browser/device.'; return; }
-  try {
-    const session = await navigator.xr.requestSession('immersive-ar', {
-      requiredFeatures: ['hit-test', 'local-floor'],
-      optionalFeatures: ['plane-detection', 'hand-tracking', 'dom-overlay'],
-      domOverlay: { root: document.getElementById('overlay') },
+/* ------------------------------------------------------------------
+   HIT TEST RETICLE — finds real surfaces ABOVE floor height
+   (desk / shelf / table), not the floor itself.
+------------------------------------------------------------------ */
+function setupReticle() {
+  const geo = new THREE.RingGeometry(0.06, 0.08, 32).rotateX(-Math.PI / 2);
+  const mat = new THREE.MeshBasicMaterial({ color: 0x66ff66, transparent: true, opacity: 0.9 });
+  reticle = new THREE.Mesh(geo, mat);
+  reticle.matrixAutoUpdate = false;
+  reticle.visible = false;
+  scene.add(reticle);
+}
+
+function onSessionStart() {
+  const session = renderer.xr.getSession();
+
+  session.addEventListener('select', onSelect);
+
+  const referenceSpaceType = renderer.xr.getReferenceSpace();
+  session.requestReferenceSpace('viewer').then((viewerSpace) => {
+    session.requestHitTestSource({ space: viewerSpace }).then((source) => {
+      hitTestSource = source;
     });
-    await renderer.xr.setSession(session);
-    onSessionStart();
-  } catch (e) {
-    statusEl.textContent = 'Could not start AR session: ' + e.message;
-  }
-});
+  });
+  hitTestSourceRequested = true;
 
-// ---------------------------------------------------------------
-// Hand tracking pinch detection — no hand visuals are rendered,
-// only the joint math is used to detect a pinch gesture.
-// ---------------------------------------------------------------
-const hand0 = renderer.xr.getHand(0);
-const hand1 = renderer.xr.getHand(1);
-scene.add(hand0, hand1);
-let wasPinching = [false, false];
+  // Estimate floor height with a short downward-looking grace period:
+  // we treat the lowest hit-test result seen in the first few seconds as "floor".
+  floorY = null;
+  setTimeout(() => { if (floorY === null) floorY = -1.4; }, 6000); // safety fallback (avg seated/standing eye height offset)
 
-function checkHandPinch(hand, idx) {
-  const thumb = hand.joints['thumb-tip'];
-  const index = hand.joints['index-finger-tip'];
-  if (!thumb || !index) return;
-  const dist = thumb.position.distanceTo(index.position);
-  const isPinching = dist < 0.025;
-  if (isPinching && !wasPinching[idx]) onPinchOrTrigger();
-  wasPinching[idx] = isPinching;
+  hintEl.textContent = 'Look at a desk / table / shelf and tap the trigger (or air-tap) on the green ring to place the phone.';
 }
 
-function onPinchOrTrigger() {
+function onSessionEnd() {
+  hitTestSource = null;
+  hitTestSourceRequested = false;
+}
+
+function onSelect() {
+  if (placed) return;
   if (!reticle.visible) return;
-  if (!clark) {
-    const pos = new THREE.Vector3();
-    pos.setFromMatrixPosition(reticle.matrix);
-    spawnClark(pos);
-    statusEl.textContent = 'Captain Clark has entered the room.';
-  } else {
-    // If already spawned, a pinch/trigger aimed near the character bites
-    const box = new THREE.Box3().setFromObject(clark);
-    const camPos = new THREE.Vector3();
-    camera.getWorldPosition(camPos);
-    if (box.distanceToPoint(camPos) < 1.5) triggerBite();
+
+  const pos = new THREE.Vector3();
+  const quat = new THREE.Quaternion();
+  reticle.matrix.decompose(pos, quat, new THREE.Vector3());
+
+  // Enforce "higher than the floor" — require a minimum height above the
+  // lowest surface we've observed (the floor).
+  if (floorY !== null && (pos.y - floorY) < 0.25) {
+    log('That looks like the floor — find a raised surface (desk/table/shelf).');
+    return;
+  }
+
+  placePhone(pos);
+}
+
+/* ------------------------------------------------------------------
+   THE PHONE — procedural, detailed vintage rotary handset + base,
+   PBR materials so it's visibly shinier than any (matte) real desk.
+------------------------------------------------------------------ */
+function setupPhone() {
+  phoneGroup = new THREE.Group();
+  phoneGroup.visible = false;
+  scene.add(phoneGroup);
+
+  const bakelite = new THREE.MeshPhysicalMaterial({
+    color: 0x0d0d0d,
+    roughness: 0.18,
+    metalness: 0.05,
+    clearcoat: 0.9,
+    clearcoatRoughness: 0.12,
+    reflectivity: 0.6,
+  });
+  const chrome = new THREE.MeshStandardMaterial({
+    color: 0xd8d8d8, roughness: 0.08, metalness: 1.0
+  });
+  const dialPlate = new THREE.MeshPhysicalMaterial({
+    color: 0xe8e2c9, roughness: 0.35, metalness: 0.0, clearcoat: 0.4
+  });
+
+  // --- Base ---
+  baseGroup = new THREE.Group();
+  const baseBody = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 0.06, 24), bakelite);
+  baseBody.position.y = 0.03;
+  baseBody.castShadow = true; baseBody.receiveShadow = true;
+  baseGroup.add(baseBody);
+
+  // Rotary dial
+  const dial = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.012, 32), dialPlate);
+  dial.position.set(0, 0.066, 0.01);
+  dial.castShadow = true;
+  baseGroup.add(dial);
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2;
+    const hole = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.007, 0.014, 12), bakelite);
+    hole.position.set(Math.cos(a) * 0.055, 0.067, 0.01 + Math.sin(a) * 0.055);
+    baseGroup.add(hole);
+  }
+  const fingerStop = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.014, 0.02), chrome);
+  fingerStop.position.set(0.07, 0.066, 0.045);
+  baseGroup.add(fingerStop);
+
+  // Bell box ridge + two small bells visible under base lip
+  const ridge = new THREE.Mesh(new THREE.TorusGeometry(0.115, 0.008, 8, 32), chrome);
+  ridge.rotation.x = Math.PI / 2;
+  ridge.position.y = 0.005;
+  baseGroup.add(ridge);
+
+  // Cradle prongs (handset rests on these — also switch-hook)
+  const prongGeo = new THREE.CylinderGeometry(0.008, 0.008, 0.035, 10);
+  const prongL = new THREE.Mesh(prongGeo, chrome);
+  prongL.position.set(-0.045, 0.078, -0.05);
+  const prongR = prongL.clone();
+  prongR.position.x = 0.045;
+  baseGroup.add(prongL, prongR);
+
+  phoneGroup.add(baseGroup);
+
+  // --- Handset ("banana" style earpiece/mouthpiece + handle) ---
+  handsetGroup = new THREE.Group();
+  const handleCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-0.09, 0, 0),
+    new THREE.Vector3(-0.03, -0.025, 0),
+    new THREE.Vector3(0.03, -0.025, 0),
+    new THREE.Vector3(0.09, 0, 0),
+  ]);
+  const handle = new THREE.Mesh(new THREE.TubeGeometry(handleCurve, 32, 0.018, 16, false), bakelite);
+  handle.castShadow = true;
+  handsetGroup.add(handle);
+
+  const earCap = new THREE.Mesh(new THREE.SphereGeometry(0.028, 20, 20), bakelite);
+  earCap.position.set(-0.095, 0.006, 0);
+  earCap.castShadow = true;
+  const mouthCap = earCap.clone();
+  mouthCap.position.set(0.095, 0.006, 0);
+  handsetGroup.add(earCap, mouthCap);
+
+  // speaker grille rings (chrome) for detail
+  [ -0.108, 0.108 ].forEach((x) => {
+    const grille = new THREE.Mesh(new THREE.TorusGeometry(0.02, 0.0025, 8, 24), chrome);
+    grille.position.set(x, 0.006, 0);
+    grille.rotation.y = Math.PI / 2;
+    handsetGroup.add(grille);
+  });
+
+  handsetGroup.position.set(0, 0.11, -0.05);
+  handsetGroup.rotation.z = Math.PI / 2;
+  phoneGroup.add(handsetGroup);
+
+  // --- Coiled cord (visual mesh; shape driven by physics bodies each frame) ---
+  const cordMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.6, metalness: 0.1 });
+  cordMesh = new THREE.Mesh(new THREE.TubeGeometry(handleCurve, CORD_SEGMENTS, 0.006, 8, false), cordMat);
+  cordMesh.castShadow = true;
+  phoneGroup.add(cordMesh);
+}
+
+function placePhone(position) {
+  placed = true;
+  phoneGroup.visible = true;
+  phoneGroup.position.copy(position);
+  reticle.visible = false;
+  hintEl.textContent = '';
+
+  // Anchor + handset physics bodies now that we know world position.
+  anchorBody.position.set(position.x, position.y + 0.03, position.z);
+  handsetBody.position.set(position.x, position.y + 0.11, position.z - 0.05);
+  handsetBody.previousPosition = handsetBody.position.clone();
+
+  // Spotlight "from the roof" above the phone, aimed down at it.
+  spotLight.position.set(position.x, position.y + 2.6, position.z + 0.1);
+  spotLight.target.position.copy(position);
+  spotLight.intensity = 6;
+
+  log('Phone placed. Pinch it to pick it up.');
+}
+
+/* ------------------------------------------------------------------
+   PHYSICS — cannon-es rope of point masses for the cord, plus a
+   rigid body for the handset that goes kinematic while grabbed and
+   dynamic (thrown) on release.
+------------------------------------------------------------------ */
+function setupPhysics() {
+  physicsWorld = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
+  physicsWorld.allowSleep = true;
+
+  anchorBody = new CANNON.Body({ mass: 0, shape: new CANNON.Sphere(0.01) });
+  physicsWorld.addBody(anchorBody);
+
+  handsetBody = new CANNON.Body({
+    mass: 0.6,
+    shape: new CANNON.Box(new CANNON.Vec3(0.11, 0.03, 0.03)),
+    linearDamping: 0.4,
+    angularDamping: 0.6,
+  });
+  handsetBody.type = CANNON.Body.KINEMATIC; // starts docked in the cradle
+  physicsWorld.addBody(handsetBody);
+
+  // Rope of small spheres from the base (anchor) to the handset.
+  let prev = anchorBody;
+  for (let i = 0; i < CORD_SEGMENTS; i++) {
+    const body = new CANNON.Body({ mass: 0.01, shape: new CANNON.Sphere(0.006), linearDamping: 0.5 });
+    body.position.set(0, 0.03 - i * 0.001, 0);
+    physicsWorld.addBody(body);
+    cordBodies.push(body);
+    const c = new CANNON.DistanceConstraint(prev, body, CORD_SEG_LEN);
+    physicsWorld.addConstraint(c);
+    cordConstraints.push(c);
+    prev = body;
+  }
+  const finalC = new CANNON.DistanceConstraint(prev, handsetBody, CORD_SEG_LEN);
+  physicsWorld.addConstraint(finalC);
+  cordConstraints.push(finalC);
+}
+
+function stepPhysics(dt) {
+  physicsWorld.step(1 / 60, dt, 4);
+
+  // Update cord mesh geometry from body positions.
+  const pts = [new THREE.Vector3(anchorBody.position.x, anchorBody.position.y, anchorBody.position.z)];
+  cordBodies.forEach(b => pts.push(new THREE.Vector3(b.position.x, b.position.y, b.position.z)));
+  pts.push(new THREE.Vector3(handsetBody.position.x, handsetBody.position.y, handsetBody.position.z));
+  const curve = new THREE.CatmullRomCurve3(pts);
+  cordMesh.geometry.dispose();
+  cordMesh.geometry = new THREE.TubeGeometry(curve, CORD_SEGMENTS * 2, 0.006, 8, false);
+
+  if (!grabbedHand) {
+    handsetGroup.position.set(
+      handsetBody.position.x - phoneGroup.position.x,
+      handsetBody.position.y - phoneGroup.position.y,
+      handsetBody.position.z - phoneGroup.position.z
+    );
+    handsetGroup.quaternion.set(
+      handsetBody.quaternion.x, handsetBody.quaternion.y, handsetBody.quaternion.z, handsetBody.quaternion.w
+    );
   }
 }
 
-// ---------------------------------------------------------------
-// Build/refresh collision meshes from detected planes each frame
-// ---------------------------------------------------------------
-function updateDetectedPlanes(frame, referenceSpace) {
-  if (!frame.detectedPlanes) return; // not supported on this device/browser
+/* ------------------------------------------------------------------
+   HAND TRACKING — pinch-to-grab, WebXR Hand Input API
+------------------------------------------------------------------ */
+function setupHands() {
+  const handModelFactory = new XRHandModelFactory();
 
+  for (let i = 0; i < 2; i++) {
+    const hand = renderer.xr.getHand(i);
+    hand.userData.handedness = null;
+    hand.add(handModelFactory.createHandModel(hand, 'mesh'));
+    scene.add(hand);
+    handModels.push(hand);
+
+    hand.addEventListener('connected', (e) => {
+      hand.userData.handedness = e.data.handedness;
+    });
+  }
+}
+
+function getJointWorldPos(hand, name, out) {
+  const joint = hand.joints && hand.joints[name];
+  if (!joint) return null;
+  joint.getWorldPosition(out);
+  return out;
+}
+
+const _thumbPos = new THREE.Vector3();
+const _indexPos = new THREE.Vector3();
+const _midPos = new THREE.Vector3();
+const _handsetWorld = new THREE.Vector3();
+
+function updateHandTracking(dt) {
+  if (!placed) return;
+
+  handsetGroup.getWorldPosition(_handsetWorld);
+
+  for (const hand of handModels) {
+    if (!hand.joints || !hand.userData.handedness) continue;
+    if (grabbedHand && grabbedHand !== hand.userData.handedness) continue;
+
+    const t = getJointWorldPos(hand, 'thumb-tip', _thumbPos);
+    const ix = getJointWorldPos(hand, 'index-finger-tip', _indexPos);
+    if (!t || !ix) continue;
+
+    const pinchDist = t.distanceTo(ix);
+    _midPos.copy(t).add(ix).multiplyScalar(0.5);
+
+    if (!grabbedHand) {
+      const nearHandset = _midPos.distanceTo(_handsetWorld) < GRAB_RADIUS;
+      if (pinchDist < PINCH_THRESHOLD && nearHandset) {
+        grabHandset(hand.userData.handedness, _midPos);
+      }
+    } else {
+      if (pinchDist < PINCH_THRESHOLD * 1.6) {
+        // continue holding — drive kinematic body to hand position
+        const now = performance.now() / 1000;
+        const dtLocal = Math.max(now - lastGrabTime, 1 / 120);
+        const vel = new THREE.Vector3().subVectors(_midPos, lastGrabPos).multiplyScalar(1 / dtLocal);
+        handsetBody.velocity.set(vel.x, vel.y, vel.z); // stored for throw on release
+        handsetBody.position.set(_midPos.x, _midPos.y, _midPos.z);
+        lastGrabPos.copy(_midPos);
+        lastGrabTime = now;
+      } else {
+        releaseHandset();
+      }
+    }
+  }
+}
+
+function grabHandset(handedness, atPos) {
+  grabbedHand = handedness;
+  handsetBody.type = CANNON.Body.KINEMATIC;
+  handsetBody.velocity.set(0, 0, 0);
+  lastGrabPos.copy(atPos);
+  lastGrabTime = performance.now() / 1000;
+  triggerRing();
+  log('Handset picked up.');
+}
+
+function releaseHandset() {
+  grabbedHand = null;
+  handsetBody.type = CANNON.Body.DYNAMIC;
+  handsetBody.wakeUp();
+  log('Handset released — it will swing on the cord.');
+}
+
+/* ------------------------------------------------------------------
+   AUDIO / VIDEO — plays a .mov's audio track, spatialized so it
+   comes from the phone's real-world position (HRTF panning routes
+   it to whichever headset driver — L or R ear — is physically closer).
+------------------------------------------------------------------ */
+function setupAudioVideo() {
+  audioListener = new THREE.AudioListener();
+  camera.add(audioListener);
+
+  videoEl = document.createElement('video');
+  videoEl.src = 'assets/phone-ring.mov'; // swap in your file; see README for codec notes
+  videoEl.crossOrigin = 'anonymous';
+  videoEl.loop = false;
+  videoEl.playsInline = true;
+  videoEl.muted = false;
+  videoEl.style.display = 'none';
+  document.body.appendChild(videoEl);
+
+  const videoSrc = new THREE.VideoTexture(videoEl); // unused visually, but keeps the video element's audio graph alive & decodable
+  videoSrc.needsUpdate = false;
+
+  positionalAudio = new THREE.PositionalAudio(audioListener);
+  positionalAudio.setMediaElementSource(videoEl);
+  positionalAudio.setRefDistance(0.15);   // very local — a real phone earpiece is tiny
+  positionalAudio.setMaxDistance(3);
+  positionalAudio.setRolloffFactor(2.2);
+  positionalAudio.setDistanceModel('exponential');
+  positionalAudio.panner.panningModel = 'HRTF'; // <- this is what routes sound to the nearer ear
+  positionalAudio.setDirectionalCone(360, 360, 0);
+}
+
+function triggerRing() {
+  if (hasRung) return; // play once per session; remove this guard if you want it to replay every pickup
+  hasRung = true;
+  handsetGroup.add(positionalAudio); // attach emitter to the handset so it tracks the mesh in 3D
+  videoEl.currentTime = 0;
+  videoEl.play().catch(err => log('Playback blocked — tap once more to allow audio: ' + err.message));
+}
+
+/* ------------------------------------------------------------------
+   VHS / HORROR FILTER — camera-locked overlay quad.
+   Standard WebXR does not expose the passthrough camera feed for
+   filtering, so this renders scanlines / grain / vignette / tracking
+   glitches as a semi-transparent layer that the XR compositor blends
+   OVER the real world, which is the closest real approximation of a
+   "VHS filter on your view" achievable without private camera access.
+------------------------------------------------------------------ */
+function setupVHSOverlay() {
+  const geo = new THREE.PlaneGeometry(2, 2);
+  vhsMaterial = new THREE.ShaderMaterial({
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+    uniforms: {
+      uTime: { value: 0 },
+      uGlitch: { value: 0 },
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = vec4(position.xy, 0.0, 1.0);
+      }
+    `,
+    fragmentShader: `
+      precision highp float;
+      varying vec2 vUv;
+      uniform float uTime;
+      uniform float uGlitch;
+
+      float hash(vec2 p) { return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
+
+      void main() {
+        vec2 uv = vUv;
+        float t = uTime;
+
+        // rolling tracking-error band
+        float band = smoothstep(0.0, 0.02, abs(fract(uv.y * 1.0 + t * 0.05) - 0.5) - 0.47);
+        float glitchShift = band * (hash(vec2(t, floor(uv.y * 40.0))) - 0.5) * 0.03 * (0.4 + uGlitch);
+
+        // fine scanlines
+        float scan = sin(uv.y * 800.0) * 0.02 + sin(uv.y * 250.0 - t * 30.0) * 0.015;
+
+        // grain
+        float grain = (hash(uv * (300.0 + 40.0*sin(t)) + t) - 0.5) * 0.12;
+
+        // vignette (darkens real-world edges too, via alpha)
+        vec2 c = uv - 0.5;
+        float vig = smoothstep(0.75, 0.32, length(c));
+
+        // sickly green-black VHS tint, RGB-fringed at edges
+        vec3 tint = vec3(0.05, 0.12, 0.06);
+        float fringe = glitchShift * 6.0;
+
+        float alpha = clamp(0.16 + (1.0 - vig) * 0.55 + abs(scan) * 0.6 + band * 0.5, 0.0, 0.92);
+        vec3 col = tint + grain + vec3(fringe, 0.0, -fringe);
+
+        // occasional full-frame flash glitch
+        float flash = step(0.997, hash(vec2(floor(t * 8.0), 1.0))) * 0.4;
+        col += flash;
+        alpha = clamp(alpha + flash, 0.0, 0.95);
+
+        gl_FragColor = vec4(col, alpha);
+      }
+    `
+  });
+  vhsQuad = new THREE.Mesh(geo, vhsMaterial);
+  vhsQuad.frustumCulled = false;
+  vhsQuad.renderOrder = 9999;
+
+  const overlayScene = new THREE.Scene();
+  overlayScene.add(vhsQuad);
+  window.__overlayScene = overlayScene;
+  window.__overlayCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+}
+
+/* ------------------------------------------------------------------
+   PLANE DETECTION -> shadow-catching real-surface meshes.
+   Rendering the real desk/table as a rough, mostly-invisible
+   shadow-catcher lets the phone/spotlight/shadow interact believably
+   with real furniture, and gives the "desk is duller than phone"
+   contrast something to actually render against.
+------------------------------------------------------------------ */
+const planeMeshes = new Map();
+function updateDetectedPlanes(frame, referenceSpace) {
+  if (!frame.detectedPlanes) return;
   const seen = new Set();
   for (const plane of frame.detectedPlanes) {
     seen.add(plane);
     const pose = frame.getPose(plane.planeSpace, referenceSpace);
     if (!pose) continue;
-
-    let mesh = plane.userMesh;
-    const isHorizontal = plane.orientation === 'horizontal';
+    let mesh = planeMeshes.get(plane);
     if (!mesh) {
-      const shape = new THREE.Shape(plane.polygon.map((p) => new THREE.Vector2(p.x, p.z)));
-      const geometry = new THREE.ShapeGeometry(shape);
-      geometry.rotateX(Math.PI / 2);
-      mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ visible: false }));
-      plane.userMesh = mesh;
+      const shape = plane.polygon.map(p => new THREE.Vector2(p.x, p.z));
+      const geo = new THREE.ShapeGeometry(new THREE.Shape(shape));
+      const mat = new THREE.ShadowMaterial({ opacity: 0.35 });
+      mesh = new THREE.Mesh(geo, mat);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.receiveShadow = true;
       scene.add(mesh);
-      (isHorizontal ? planeMeshes : wallMeshes).push(mesh);
+      planeMeshes.set(plane, mesh);
     }
     mesh.matrix.fromArray(pose.transform.matrix);
     mesh.matrix.decompose(mesh.position, mesh.quaternion, mesh.scale);
-  }
 
-  // Clean up planes no longer tracked
-  for (const list of [planeMeshes, wallMeshes]) {
-    for (let i = list.length - 1; i >= 0; i--) {
-      const stillTracked = [...seen].some((pl) => pl.userMesh === list[i]);
-      if (!stillTracked) {
-        scene.remove(list[i]);
-        list.splice(i, 1);
-      }
+    if (floorY === null || pose.transform.position.y < floorY) {
+      // Track the lowest known horizontal surface as an approximation of the floor.
+      if (plane.orientation === 'horizontal') floorY = pose.transform.position.y;
     }
+  }
+  for (const [plane, mesh] of planeMeshes) {
+    if (!seen.has(plane)) { scene.remove(mesh); planeMeshes.delete(plane); }
   }
 }
 
-// ---------------------------------------------------------------
-// Main render loop
-// ---------------------------------------------------------------
-let lastTime = 0;
-renderer.setAnimationLoop((time, frame) => {
-  const dt = Math.min((time - lastTime) / 1000, 0.1) || 0;
-  lastTime = time;
+/* ------------------------------------------------------------------
+   RENDER LOOP
+------------------------------------------------------------------ */
+function render(timestamp, frame) {
+  const dt = Math.min(clock.getDelta(), 0.05);
 
-  if (frame && sessionActive) {
+  if (frame) {
     const referenceSpace = renderer.xr.getReferenceSpace();
     const session = renderer.xr.getSession();
 
-    // Hit test source (drives the placement reticle)
-    if (!hitTestSourceRequested) {
-      session.requestReferenceSpace('viewer').then((viewerSpace) => {
-        session.requestHitTestSource({ space: viewerSpace }).then((source) => {
-          hitTestSource = source;
-        });
-      });
-      session.requestAnimationFrame(() => {});
-      hitTestSourceRequested = true;
-    }
-
-    if (hitTestSource && !clark) {
+    if (hitTestSourceRequested && hitTestSource && !placed) {
       const results = frame.getHitTestResults(hitTestSource);
       if (results.length > 0) {
-        const hitPose = results[0].getPose(referenceSpace);
+        const hit = results[0];
+        const pose = hit.getPose(referenceSpace);
         reticle.visible = true;
-        reticle.matrix.fromArray(hitPose.transform.matrix);
+        reticle.matrix.fromArray(pose.transform.matrix);
+
+        if (floorY === null || pose.transform.position.y < floorY) {
+          // seed floor estimate conservatively low until plane-detection refines it
+        }
       } else {
         reticle.visible = false;
       }
-    } else {
-      reticle.visible = false; // hide once spawned, no longer needed
     }
 
     updateDetectedPlanes(frame, referenceSpace);
-
-    // Hand pinch polling (no visual indicators rendered)
-    if (hand0.joints['index-finger-tip']) checkHandPinch(hand0, 0);
-    if (hand1.joints['index-finger-tip']) checkHandPinch(hand1, 1);
+    updateHandTracking(dt);
   }
 
-  animateClark(dt);
-  groundClark();
-  if (clark && clarkState) clark.position.y = clarkState.baseY + (clark.position.y - (clarkState.baseY));
+  stepPhysics(dt);
 
+  // gentle horror flicker on the ceiling spotlight
+  if (placed) {
+    bulbFlickerT += dt;
+    const flicker = 0.85 + 0.15 * Math.sin(bulbFlickerT * 17.0) * (Math.random() > 0.94 ? 0.4 : 1.0);
+    spotLight.intensity = 6 * flicker;
+  }
+
+  vhsMaterial.uniforms.uTime.value = timestamp / 1000;
+
+  renderer.autoClear = true;
   renderer.render(scene, camera);
-});
 
-window.addEventListener('resize', () => {
-  camera.aspect = innerWidth / innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-});
+  renderer.autoClear = false;
+  renderer.clearDepth();
+  renderer.render(window.__overlayScene, window.__overlayCamera);
+  renderer.autoClear = true;
+}
 </script>
 </body>
 </html>
