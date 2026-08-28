@@ -2,47 +2,188 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>VHS // STATIC LINE</title>
-<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Kickabout — Mixed Reality Soccer</title>
 <style>
-  html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#000; font-family: 'Courier New', monospace; }
-  #overlay {
-    position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
-    color:#9dff9d; text-align:center; z-index:10; background:radial-gradient(ellipse at center, #001a00 0%, #000 100%);
+  :root{
+    --glass: rgba(18,20,22,0.55);
+    --glass-strong: rgba(14,16,18,0.72);
+    --hair: rgba(255,255,255,0.14);
+    --turf: #34d17c;
+    --turf-dim: #1f7a49;
+    --amber: #ffb454;
+    --text: #f4f6f5;
+    --text-dim: rgba(244,246,245,0.6);
+    --radius: 22px;
   }
-  #overlay h1 { letter-spacing:4px; font-size:1.4em; text-shadow:0 0 8px #4dff4d; }
-  #overlay p { max-width:520px; line-height:1.5; font-size:0.85em; color:#7fcf7f; padding:0 20px; }
-  #startBtn {
-    margin-top:20px; padding:14px 30px; font-family:inherit; font-size:1em; letter-spacing:2px;
-    background:#001a00; color:#9dff9d; border:1px solid #4dff4d; cursor:pointer; text-transform:uppercase;
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0; padding:0; width:100%; height:100%; overflow:hidden;
+    background:transparent;
+    font-family:-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", ui-sans-serif, system-ui, sans-serif;
+    color:var(--text);
+    -webkit-user-select:none; user-select:none;
   }
-  #startBtn:hover { background:#0a2a0a; }
-  #status { position:fixed; bottom:8px; left:8px; color:#4dff4d; font-size:11px; z-index:20; opacity:0.8; pointer-events:none; white-space:pre; }
-  #hint { position:fixed; top:8px; left:8px; color:#4dff4d; font-size:11px; z-index:20; opacity:0.8; pointer-events:none; }
-  .unsupported { color:#ff5555 !important; }
+  canvas{ display:block; }
+
+  #blocker{
+    position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+    background:radial-gradient(120% 120% at 50% 20%, #1c2b22 0%, #0a0c0d 70%);
+    z-index:50;
+  }
+  #startCard{
+    width:min(420px, 88vw);
+    background:var(--glass-strong);
+    backdrop-filter: blur(28px) saturate(160%);
+    -webkit-backdrop-filter: blur(28px) saturate(160%);
+    border:1px solid var(--hair);
+    border-radius:28px;
+    padding:34px 30px 28px;
+    box-shadow: 0 30px 60px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06);
+    text-align:center;
+  }
+  #startCard .eyebrow{
+    font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--turf);
+    font-weight:600; margin-bottom:10px;
+  }
+  #startCard h1{
+    font-size:26px; font-weight:650; margin:0 0 10px; letter-spacing:-0.01em;
+  }
+  #startCard p{
+    font-size:14px; line-height:1.55; color:var(--text-dim); margin:0 0 22px;
+  }
+  #enterBtn{
+    width:100%; padding:15px 18px; border:none; border-radius:16px;
+    background:linear-gradient(180deg, var(--turf), var(--turf-dim));
+    color:#052312; font-weight:700; font-size:16px; letter-spacing:0.01em;
+    cursor:pointer; box-shadow:0 10px 22px rgba(52,209,124,0.35);
+    transition:transform .15s ease, box-shadow .15s ease;
+  }
+  #enterBtn:active{ transform:scale(0.97); box-shadow:0 4px 10px rgba(52,209,124,0.3); }
+  #enterBtn:disabled{ opacity:0.45; box-shadow:none; }
+  #supportNote{ margin-top:14px; font-size:11.5px; color:var(--text-dim); line-height:1.5; }
+  #supportNote b{ color:var(--text); }
+
+  /* ---- in-session DOM overlay (renders over passthrough) ---- */
+  #overlay{
+    position:fixed; inset:0; pointer-events:none; display:none;
+    font-variant-numeric: tabular-nums;
+  }
+  .panel{
+    position:absolute; pointer-events:auto;
+    background:var(--glass);
+    backdrop-filter: blur(24px) saturate(160%);
+    -webkit-backdrop-filter: blur(24px) saturate(160%);
+    border:1px solid var(--hair);
+    border-radius:var(--radius);
+    box-shadow:0 18px 40px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06);
+  }
+
+  #hud{
+    top:22px; left:50%; transform:translateX(-50%);
+    padding:10px 20px; display:flex; gap:16px; align-items:center;
+    font-size:13px; color:var(--text-dim);
+  }
+  #hud .dot{ width:7px; height:7px; border-radius:50%; background:#555; display:inline-block; margin-right:6px; }
+  #hud .dot.on{ background:var(--turf); box-shadow:0 0 8px var(--turf); }
+  #hud .hint{ color:var(--text); font-weight:600; }
+
+  #calibBtn, #resetBtn{
+    position:absolute; bottom:26px; padding:12px 18px; font-size:13px; font-weight:650;
+    border-radius:16px; color:var(--text); cursor:pointer; pointer-events:auto;
+  }
+  #calibBtn{ left:26px; }
+  #resetBtn{ right:26px; }
+
+  #calibPanel{
+    top:50%; left:50%; transform:translate(-50%,-50%);
+    width:min(380px, 84vw); padding:22px 22px 18px; display:none;
+  }
+  #calibPanel h2{ font-size:16px; margin:0 0 4px; font-weight:650; }
+  #calibPanel .sub{ font-size:12.5px; color:var(--text-dim); margin:0 0 16px; line-height:1.5; }
+  .legRow{ margin-bottom:16px; }
+  .legRow label{ font-size:12.5px; color:var(--text-dim); display:flex; justify-content:space-between; margin-bottom:6px; }
+  .legRow label span.val{ color:var(--turf); font-weight:700; }
+  input[type=range]{
+    -webkit-appearance:none; width:100%; height:5px; border-radius:3px;
+    background:rgba(255,255,255,0.14); outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:20px; height:20px; border-radius:50%;
+    background:var(--turf); box-shadow:0 2px 6px rgba(0,0,0,0.4); cursor:pointer;
+    border:2px solid #05130b;
+  }
+  .calibActions{ display:flex; gap:10px; margin-top:6px; }
+  .btnSmall{
+    flex:1; padding:10px; border:none; border-radius:12px; font-weight:650; font-size:12.5px;
+    cursor:pointer;
+  }
+  .btnSmall.primary{ background:linear-gradient(180deg, var(--turf), var(--turf-dim)); color:#052312; }
+  .btnSmall.ghost{ background:rgba(255,255,255,0.08); color:var(--text); border:1px solid var(--hair); }
+  .stanceNote{ font-size:11px; color:var(--amber); margin-top:12px; line-height:1.5; }
+
+  #toast{
+    top:80px; left:50%; transform:translateX(-50%);
+    padding:10px 18px; font-size:13px; font-weight:600; opacity:0; transition:opacity .35s ease;
+  }
+  #toast.show{ opacity:1; }
 </style>
 </head>
 <body>
 
-<div id="overlay">
-  <h1>▚ STATIC LINE ▚</h1>
-  <p>
-    A rotary phone is somewhere nearby, above the floor.
-    Point your headset around a desk, table, or shelf to find it.
-    Pinch it with your fingers to pick it up. Something will answer.
-  </p>
-  <button id="startBtn">ENTER MIXED REALITY</button>
-  <p id="reqs" style="font-size:0.7em; opacity:0.7;">Requires Meta Quest Browser (or another WebXR AR + hand-tracking capable browser), served over HTTPS.</p>
-</div>
+  <div id="blocker">
+    <div id="startCard">
+      <div class="eyebrow">Mixed Reality</div>
+      <h1>Kickabout</h1>
+      <p>Open your palm to summon a ball, pinch to pick it up, and strike it with your leg-mounted controllers. Your real room — walls, floor, doors — plays along.</p>
+      <button id="enterBtn" disabled>Checking device…</button>
+      <div id="supportNote"></div>
+    </div>
+  </div>
 
-<div id="status"></div>
-<div id="hint"></div>
+  <div id="overlay">
+    <div id="hud" class="panel">
+      <span><span id="dotHand" class="dot"></span>Hands</span>
+      <span><span id="dotPlane" class="dot"></span>Room</span>
+      <span><span id="dotLegs" class="dot"></span>Legs</span>
+      <span class="hint" id="hudHint">Open your palm</span>
+    </div>
+
+    <div id="toast" class="panel"></div>
+
+    <button id="calibBtn" class="panel">Calibrate legs</button>
+    <button id="resetBtn" class="panel">Reset ball</button>
+
+    <div id="calibPanel" class="panel">
+      <h2>Leg calibration</h2>
+      <p class="sub">Stand naturally with both controllers strapped to your shins, then tap “Capture stance.” Fine‑tune afterwards if the foot marker looks off.</p>
+
+      <div class="legRow">
+        <label>Ankle drop (shin → floor) <span class="val" id="valDrop">38 cm</span></label>
+        <input type="range" id="sliderDrop" min="15" max="55" value="38" step="0.5" />
+      </div>
+      <div class="legRow">
+        <label>Foot length (heel → toe) <span class="val" id="valLen">25 cm</span></label>
+        <input type="range" id="sliderLen" min="18" max="34" value="25" step="0.5" />
+      </div>
+      <div class="legRow">
+        <label>Foot forward offset <span class="val" id="valFwd">4 cm</span></label>
+        <input type="range" id="sliderFwd" min="-6" max="14" value="4" step="0.5" />
+      </div>
+
+      <div class="calibActions">
+        <button class="btnSmall ghost" id="captureBtn">Capture stance</button>
+        <button class="btnSmall primary" id="doneBtn">Done</button>
+      </div>
+      <div class="stanceNote">Tip: the glowing marker over each shin approximates your foot. It's a rigid‑offset estimate, not true ankle tracking.</div>
+    </div>
+  </div>
 
 <script type="importmap">
 {
   "imports": {
-    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+    "three": "https://unpkg.com/three@0.161.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.161.0/examples/jsm/",
     "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js"
   }
 }
@@ -50,668 +191,656 @@
 
 <script type="module">
 import * as THREE from 'three';
-import { ARButton } from 'three/addons/webxr/ARButton.js';
-import { XREstimatedLight } from 'three/addons/webxr/XREstimatedLight.js';
-import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
 import * as CANNON from 'cannon-es';
 
-/* ------------------------------------------------------------------
-   GLOBAL STATE
------------------------------------------------------------------- */
-let renderer, scene, camera;
-let reticle, hitTestSource = null, hitTestSourceRequested = false;
-let floorY = null;              // estimated real floor height (world Y)
-let placed = false;             // has the phone been placed?
-let phoneGroup, handsetGroup, baseGroup, cordMesh;
-let physicsWorld, cordBodies = [], cordConstraints = [], handsetBody, anchorBody;
-let handModels = [], handJointsL = null, handJointsR = null;
-let grabbedHand = null;         // 'left' | 'right' | null
-let lastGrabPos = new THREE.Vector3();
-let lastGrabTime = 0;
-let estimatedLight;
-let audioListener, positionalAudio, videoEl;
-let hasRung = false;
-let spotLight, bulbFlickerT = 0;
-let vhsMaterial, vhsQuad;
-let statusEl = document.getElementById('status');
-let hintEl = document.getElementById('hint');
-let clock = new THREE.Clock();
-const CORD_SEGMENTS = 14;
-const CORD_SEG_LEN = 0.03;
-const PINCH_THRESHOLD = 0.028;   // meters between thumb & index tip
-const GRAB_RADIUS = 0.14;        // meters from handset center to trigger grab
+/* ============================================================
+   KICKABOUT — Mixed Reality Soccer for Quest 3
+   Single-file WebXR app. Serve over HTTPS (or localhost) and
+   open in the Quest Browser.
+   ============================================================ */
 
-/* ------------------------------------------------------------------
-   BOOT
------------------------------------------------------------------- */
-document.getElementById('startBtn').addEventListener('click', init);
+/* ---------------- Feature / support notes ----------------
+   - hand-tracking: required. Enable in Quest Settings > Movement Tracking.
+   - plane-detection: optional. Powers real-world wall/floor/door collision.
+     Requires a completed Room Setup / Space Scan and, on some runtime
+     versions, enabling the "Scene API" experimental flag in the Quest
+     Browser (oculus://settings or chrome://flags equivalent).
+   - Real-time re-scanning of a *moving* door is approximated: static
+     room planes give the baseline geometry, and we additionally treat
+     any plane whose pose changes frame-to-frame (e.g. a door swinging
+     on its detected plane) as a moving collider, updating physics live.
+     This is a best-effort approximation, not guaranteed on every OS build.
+   - Hand occlusion is done WITHOUT the experimental depth-sensing API:
+     invisible "occluder" spheres are tracked to your real hand joints
+     and write only to the depth buffer, so the passthrough hand
+     naturally cuts in front of the virtual ball when it's closer to you.
+   - Leg controllers: your Quest controllers, worn in leg straps, are
+     read via the normal controller grip pose. A calibrated rigid offset
+     projects a "foot" collision point beyond the strap position.
+------------------------------------------------------------- */
 
-function log(msg) {
-  statusEl.textContent = msg;
-  console.log('[VHS-PHONE]', msg);
+const overlay = document.getElementById('overlay');
+const blocker = document.getElementById('blocker');
+const enterBtn = document.getElementById('enterBtn');
+const supportNote = document.getElementById('supportNote');
+const toastEl = document.getElementById('toast');
+const hudHint = document.getElementById('hudHint');
+const dotHand = document.getElementById('dotHand');
+const dotPlane = document.getElementById('dotPlane');
+const dotLegs = document.getElementById('dotLegs');
+const calibBtn = document.getElementById('calibBtn');
+const resetBtn = document.getElementById('resetBtn');
+const calibPanel = document.getElementById('calibPanel');
+const captureBtn = document.getElementById('captureBtn');
+const doneBtn = document.getElementById('doneBtn');
+const sliderDrop = document.getElementById('sliderDrop');
+const sliderLen = document.getElementById('sliderLen');
+const sliderFwd = document.getElementById('sliderFwd');
+const valDrop = document.getElementById('valDrop');
+const valLen = document.getElementById('valLen');
+const valFwd = document.getElementById('valFwd');
+
+function toast(msg, ms = 2200) {
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => toastEl.classList.remove('show'), ms);
 }
 
-async function init() {
-  document.getElementById('overlay').style.display = 'none';
+/* ---------------- Renderer / Scene ---------------- */
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.01, 30);
 
-  scene = new THREE.Scene();
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.setClearColor(0x000000, 0);
+renderer.xr.enabled = true;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
 
-  camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 40);
-
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  renderer.setPixelRatio(window.devicePixelRatio);
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.0;
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  renderer.xr.enabled = true;
-  renderer.autoClear = true;
-  document.body.appendChild(renderer.domElement);
-
-  const sessionInit = {
-    requiredFeatures: ['hit-test'],
-    optionalFeatures: [
-      'hand-tracking',
-      'light-estimation',
-      'plane-detection',
-      'anchors',
-      'dom-overlay'
-    ],
-    domOverlay: { root: document.body }
-  };
-
-  const arButton = ARButton.createButton(renderer, sessionInit);
-  arButton.style.display = 'none'; // we trigger it programmatically
-  document.body.appendChild(arButton);
-  arButton.click();
-
-  renderer.xr.addEventListener('sessionstart', onSessionStart);
-  renderer.xr.addEventListener('sessionend', onSessionEnd);
-
-  setupLighting();
-  setupReticle();
-  setupPhone();
-  setupPhysics();
-  setupHands();
-  setupAudioVideo();
-  setupVHSOverlay();
-
-  window.addEventListener('resize', onResize);
-  renderer.setAnimationLoop(render);
-}
-
-function onResize() {
-  camera.aspect = window.innerWidth / window.innerHeight;
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-}
+  renderer.setSize(innerWidth, innerHeight);
+});
 
-/* ------------------------------------------------------------------
-   LIGHTING: real-world light estimation (WebXR light-estimation API)
-   -> drives both scene lighting AND PBR reflections (scene.environment)
------------------------------------------------------------------- */
-function setupLighting() {
-  estimatedLight = new XREstimatedLight(renderer);
-  estimatedLight.addEventListener('estimationstart', () => {
-    // Real-world-derived environment map -> used for material reflections.
-    scene.add(estimatedLight);
-    if (estimatedLight.environment) {
-      scene.environment = estimatedLight.environment;
+// Soft ambient + one key light so the ball grounds visually in passthrough.
+scene.add(new THREE.HemisphereLight(0xffffff, 0x33362f, 0.9));
+const keyLight = new THREE.DirectionalLight(0xffffff, 1.1);
+keyLight.position.set(1.2, 2.4, 0.8);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(1024, 1024);
+keyLight.shadow.camera.near = 0.1;
+keyLight.shadow.camera.far = 8;
+keyLight.shadow.camera.left = -2; keyLight.shadow.camera.right = 2;
+keyLight.shadow.camera.top = 2; keyLight.shadow.camera.bottom = -2;
+keyLight.shadow.bias = -0.0025;
+scene.add(keyLight);
+
+// A soft, shadow-only "ground catcher" — invisible except for the shadow
+// it receives, so the ball reads as grounded on your real floor.
+const shadowCatcher = new THREE.Mesh(
+  new THREE.PlaneGeometry(6, 6),
+  new THREE.ShadowMaterial({ opacity: 0.28 })
+);
+shadowCatcher.rotation.x = -Math.PI / 2;
+shadowCatcher.position.y = 0.001;
+shadowCatcher.receiveShadow = true;
+scene.add(shadowCatcher);
+
+/* ---------------- Physics world ---------------- */
+const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.81, 0) });
+world.broadphase = new CANNON.SAPBroadphase(world);
+world.allowSleep = false;
+world.solver.iterations = 12;
+
+const ballMaterial = new CANNON.Material('ball');
+const roomMaterial = new CANNON.Material('room');
+const limbMaterial = new CANNON.Material('limb');
+
+world.addContactMaterial(new CANNON.ContactMaterial(ballMaterial, roomMaterial, {
+  friction: 0.35, restitution: 0.55,
+}));
+world.addContactMaterial(new CANNON.ContactMaterial(ballMaterial, limbMaterial, {
+  friction: 0.2, restitution: 0.15,
+}));
+
+// Fallback floor (used until / unless a real floor plane is detected)
+const floorBody = new CANNON.Body({ mass: 0, material: roomMaterial, shape: new CANNON.Plane() });
+floorBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+world.addBody(floorBody);
+
+/* ---------------- Soccer ball ---------------- */
+const BALL_RADIUS = 0.11;
+
+function makeSoccerTexture() {
+  const size = 512;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#f2f2f2';
+  ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = '#161616';
+  // Scatter rounded pentagon-ish blobs to read as a soccer ball at a glance.
+  const spots = [
+    [0.5,0.14],[0.18,0.32],[0.82,0.32],[0.5,0.5],
+    [0.14,0.66],[0.86,0.66],[0.32,0.85],[0.68,0.85],
+    [0.06,0.48],[0.94,0.48]
+  ];
+  for (const [u, v] of spots) {
+    const x = u * size, y = v * size, r = size * 0.085;
+    ctx.beginPath();
+    for (let i = 0; i < 5; i++) {
+      const a = -Math.PI / 2 + i * (Math.PI * 2 / 5);
+      const px = x + Math.cos(a) * r, py = y + Math.sin(a) * r;
+      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
     }
-    // Fall back ambient stays low so estimated light dominates when available.
-    fallbackAmbient.intensity = 0.05;
-    log('Light estimation active — reflections now follow your real lighting.');
-  });
-  estimatedLight.addEventListener('estimationend', () => {
-    scene.remove(estimatedLight);
-    scene.environment = null;
-    fallbackAmbient.intensity = 0.6;
-  });
-
-  // Fallback ambient in case the browser/device has no light-estimation support.
-  var fallbackAmbient = new THREE.AmbientLight(0x223322, 0.6);
-  scene.add(fallbackAmbient);
-  window.fallbackAmbient = fallbackAmbient;
-
-  // "Spotlight from the roof" — added once the phone is placed (see placePhone()).
-  spotLight = new THREE.SpotLight(0xbfe8ff, 0, 8, Math.PI / 10, 0.4, 1.2);
-  spotLight.castShadow = true;
-  spotLight.shadow.mapSize.set(1024, 1024);
-  spotLight.shadow.bias = -0.001;
-  scene.add(spotLight);
-  scene.add(spotLight.target);
+    ctx.closePath();
+    ctx.fill();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
 }
 
-/* ------------------------------------------------------------------
-   HIT TEST RETICLE — finds real surfaces ABOVE floor height
-   (desk / shelf / table), not the floor itself.
------------------------------------------------------------------- */
-function setupReticle() {
-  const geo = new THREE.RingGeometry(0.06, 0.08, 32).rotateX(-Math.PI / 2);
-  const mat = new THREE.MeshBasicMaterial({ color: 0x66ff66, transparent: true, opacity: 0.9 });
-  reticle = new THREE.Mesh(geo, mat);
-  reticle.matrixAutoUpdate = false;
-  reticle.visible = false;
-  scene.add(reticle);
+const ballGeo = new THREE.SphereGeometry(BALL_RADIUS, 48, 32);
+const ballMat = new THREE.MeshStandardMaterial({
+  map: makeSoccerTexture(), roughness: 0.55, metalness: 0.02,
+});
+const ballMesh = new THREE.Mesh(ballGeo, ballMat);
+ballMesh.castShadow = true;
+ballMesh.visible = false;
+scene.add(ballMesh);
+
+// Soft spawn glow ring shown briefly on the floor under a summoned ball.
+const spawnRing = new THREE.Mesh(
+  new THREE.RingGeometry(0.09, 0.14, 48),
+  new THREE.MeshBasicMaterial({ color: 0x34d17c, transparent: true, opacity: 0, side: THREE.DoubleSide })
+);
+spawnRing.rotation.x = -Math.PI / 2;
+scene.add(spawnRing);
+let spawnRingLife = 0;
+
+let ballBody = null;
+let ballExists = false;
+let heldBy = null; // 'left' | 'right' | null
+
+function spawnBall(position) {
+  ballMesh.visible = true;
+  ballMesh.position.copy(position);
+  ballBody = new CANNON.Body({
+    mass: 0.43, // regulation-ish soccer ball mass (kg)
+    material: ballMaterial,
+    shape: new CANNON.Sphere(BALL_RADIUS),
+    linearDamping: 0.15,
+    angularDamping: 0.2,
+  });
+  ballBody.position.copy(position);
+  world.addBody(ballBody);
+  ballExists = true;
+  heldBy = null;
+
+  spawnRing.position.set(position.x, 0.002, position.z);
+  spawnRingLife = 1.0;
+
+  toast('⚽ Ball summoned — pinch to grab it');
 }
 
-function onSessionStart() {
+function resetBall() {
+  if (ballBody) world.removeBody(ballBody);
+  ballBody = null;
+  ballExists = false;
+  heldBy = null;
+  ballMesh.visible = false;
+  hudHint.textContent = 'Open your palm';
+}
+resetBtn.addEventListener('click', resetBall);
+
+/* ---------------- Hand tracking: spawn / grab / occlusion ---------------- */
+// Reduced joint set we actually need per hand for gesture + occluder spheres.
+const JOINTS = [
+  'wrist',
+  'thumb-tip', 'thumb-phalanx-distal',
+  'index-finger-tip', 'index-finger-phalanx-distal', 'index-finger-metacarpal',
+  'middle-finger-tip', 'middle-finger-phalanx-distal',
+  'ring-finger-tip', 'ring-finger-phalanx-distal',
+  'pinky-finger-tip', 'pinky-finger-phalanx-distal', 'pinky-finger-metacarpal',
+];
+
+const handState = {
+  left: { tracked: false, joints: {}, occluders: [], open: false, pinching: false, palm: new THREE.Vector3(), vel: new THREE.Vector3(), prevPalm: new THREE.Vector3(), hasPrev: false },
+  right: { tracked: false, joints: {}, occluders: [], open: false, pinching: false, palm: new THREE.Vector3(), vel: new THREE.Vector3(), prevPalm: new THREE.Vector3(), hasPrev: false },
+};
+
+const occluderMat = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: true });
+occluderMat.toneMapped = false;
+
+function buildOccluders(hand) {
+  for (const j of JOINTS) {
+    const r = j.includes('tip') ? 0.011 : j === 'wrist' ? 0.028 : 0.016;
+    const m = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8), occluderMat);
+    m.visible = false;
+    m.renderOrder = -1; // draw (depth-only) before the ball for a clean cut
+    scene.add(m);
+    hand.occluders.push({ name: j, mesh: m });
+  }
+}
+buildOccluders(handState.left);
+buildOccluders(handState.right);
+
+let anyHandTracked = false;
+let anyPlaneTracked = false;
+
+function processHands(frame, refSpace) {
+  anyHandTracked = false;
   const session = renderer.xr.getSession();
+  if (!session) return;
 
-  session.addEventListener('select', onSelect);
+  for (const inputSource of session.inputSources) {
+    if (!inputSource.hand) continue;
+    const handedness = inputSource.handedness; // 'left' | 'right'
+    const state = handState[handedness];
+    if (!state) continue;
 
-  const referenceSpaceType = renderer.xr.getReferenceSpace();
-  session.requestReferenceSpace('viewer').then((viewerSpace) => {
-    session.requestHitTestSource({ space: viewerSpace }).then((source) => {
-      hitTestSource = source;
-    });
-  });
-  hitTestSourceRequested = true;
+    let gotWrist = false;
+    for (const j of JOINTS) {
+      const jointSpace = inputSource.hand.get(j);
+      if (!jointSpace) continue;
+      const pose = frame.getJointPose(jointSpace, refSpace);
+      if (!pose) continue;
+      state.joints[j] = pose;
+      const occ = state.occluders.find(o => o.name === j);
+      if (occ) {
+        occ.mesh.visible = true;
+        occ.mesh.position.set(pose.transform.position.x, pose.transform.position.y, pose.transform.position.z);
+      }
+      if (j === 'wrist') gotWrist = true;
+    }
 
-  // Estimate floor height with a short downward-looking grace period:
-  // we treat the lowest hit-test result seen in the first few seconds as "floor".
-  floorY = null;
-  setTimeout(() => { if (floorY === null) floorY = -1.4; }, 6000); // safety fallback (avg seated/standing eye height offset)
+    state.tracked = gotWrist;
+    if (!gotWrist) {
+      for (const o of state.occluders) o.mesh.visible = false;
+      continue;
+    }
+    anyHandTracked = true;
 
-  hintEl.textContent = 'Look at a desk / table / shelf and tap the trigger (or air-tap) on the green ring to place the phone.';
+    // Palm centroid: average of wrist + two metacarpals -> stable "hand position"
+    const wrist = state.joints['wrist'];
+    const idxMeta = state.joints['index-finger-metacarpal'];
+    const pinMeta = state.joints['pinky-finger-metacarpal'];
+    if (wrist && idxMeta && pinMeta) {
+      state.palm.set(
+        (wrist.transform.position.x + idxMeta.transform.position.x + pinMeta.transform.position.x) / 3,
+        (wrist.transform.position.y + idxMeta.transform.position.y + pinMeta.transform.position.y) / 3,
+        (wrist.transform.position.z + idxMeta.transform.position.z + pinMeta.transform.position.z) / 3,
+      );
+    }
+    if (state.hasPrev) {
+      state.vel.subVectors(state.palm, state.prevPalm).multiplyScalar(1 / Math.max(dt, 1 / 240));
+    }
+    state.prevPalm.copy(state.palm);
+    state.hasPrev = true;
+
+    // Openness: average fingertip-to-wrist distance vs a closed-fist baseline.
+    const tips = ['thumb-tip', 'index-finger-tip', 'middle-finger-tip', 'ring-finger-tip', 'pinky-finger-tip'];
+    let sum = 0, n = 0;
+    for (const t of tips) {
+      const p = state.joints[t];
+      if (!p || !wrist) continue;
+      const dx = p.transform.position.x - wrist.transform.position.x;
+      const dy = p.transform.position.y - wrist.transform.position.y;
+      const dz = p.transform.position.z - wrist.transform.position.z;
+      sum += Math.hypot(dx, dy, dz);
+      n++;
+    }
+    const avgSpread = n ? sum / n : 0;
+    state.open = avgSpread > 0.095; // open hand ~> extended fingers
+
+    // Pinch: thumb tip <-> index tip distance
+    const th = state.joints['thumb-tip'], ix = state.joints['index-finger-tip'];
+    if (th && ix) {
+      const d = Math.hypot(
+        th.transform.position.x - ix.transform.position.x,
+        th.transform.position.y - ix.transform.position.y,
+        th.transform.position.z - ix.transform.position.z,
+      );
+      state.pinching = d < 0.028;
+    }
+  }
+
+  // Hide occluders for hands that dropped out of tracking this frame.
+  for (const key of ['left', 'right']) {
+    const s = handState[key];
+    if (!s.tracked) for (const o of s.occluders) o.mesh.visible = false;
+  }
+
+  dotHand.classList.toggle('on', anyHandTracked);
 }
 
-function onSessionEnd() {
-  hitTestSource = null;
-  hitTestSourceRequested = false;
-}
-
-function onSelect() {
-  if (placed) return;
-  if (!reticle.visible) return;
-
-  const pos = new THREE.Vector3();
-  const quat = new THREE.Quaternion();
-  reticle.matrix.decompose(pos, quat, new THREE.Vector3());
-
-  // Enforce "higher than the floor" — require a minimum height above the
-  // lowest surface we've observed (the floor).
-  if (floorY !== null && (pos.y - floorY) < 0.25) {
-    log('That looks like the floor — find a raised surface (desk/table/shelf).');
+function updateBallGestures() {
+  // Spawn: an open, roughly upward-facing palm with no ball yet.
+  if (!ballExists) {
+    for (const key of ['left', 'right']) {
+      const s = handState[key];
+      if (s.tracked && s.open) {
+        const spawnPos = s.palm.clone();
+        spawnPos.y += 0.05;
+        spawnBall(spawnPos);
+        break;
+      }
+    }
+    hudHint.textContent = ballExists ? 'Pinch to grab' : 'Open your palm to summon the ball';
     return;
   }
 
-  placePhone(pos);
-}
-
-/* ------------------------------------------------------------------
-   THE PHONE — procedural, detailed vintage rotary handset + base,
-   PBR materials so it's visibly shinier than any (matte) real desk.
------------------------------------------------------------------- */
-function setupPhone() {
-  phoneGroup = new THREE.Group();
-  phoneGroup.visible = false;
-  scene.add(phoneGroup);
-
-  const bakelite = new THREE.MeshPhysicalMaterial({
-    color: 0x0d0d0d,
-    roughness: 0.18,
-    metalness: 0.05,
-    clearcoat: 0.9,
-    clearcoatRoughness: 0.12,
-    reflectivity: 0.6,
-  });
-  const chrome = new THREE.MeshStandardMaterial({
-    color: 0xd8d8d8, roughness: 0.08, metalness: 1.0
-  });
-  const dialPlate = new THREE.MeshPhysicalMaterial({
-    color: 0xe8e2c9, roughness: 0.35, metalness: 0.0, clearcoat: 0.4
-  });
-
-  // --- Base ---
-  baseGroup = new THREE.Group();
-  const baseBody = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 0.06, 24), bakelite);
-  baseBody.position.y = 0.03;
-  baseBody.castShadow = true; baseBody.receiveShadow = true;
-  baseGroup.add(baseBody);
-
-  // Rotary dial
-  const dial = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.012, 32), dialPlate);
-  dial.position.set(0, 0.066, 0.01);
-  dial.castShadow = true;
-  baseGroup.add(dial);
-  for (let i = 0; i < 10; i++) {
-    const a = (i / 10) * Math.PI * 2;
-    const hole = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.007, 0.014, 12), bakelite);
-    hole.position.set(Math.cos(a) * 0.055, 0.067, 0.01 + Math.sin(a) * 0.055);
-    baseGroup.add(hole);
+  if (heldBy) {
+    const s = handState[heldBy];
+    if (!s.tracked || !s.pinching) {
+      // Release -> throw with recent hand velocity
+      ballBody.type = CANNON.Body.DYNAMIC;
+      ballBody.velocity.set(s.vel.x, s.vel.y, s.vel.z);
+      heldBy = null;
+      hudHint.textContent = 'Kick it!';
+      return;
+    }
+    ballBody.type = CANNON.Body.KINEMATIC;
+    ballBody.position.set(s.palm.x, s.palm.y, s.palm.z);
+    ballBody.velocity.set(0, 0, 0);
+    hudHint.textContent = 'Holding ball — release pinch to throw';
+    return;
   }
-  const fingerStop = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.014, 0.02), chrome);
-  fingerStop.position.set(0.07, 0.066, 0.045);
-  baseGroup.add(fingerStop);
 
-  // Bell box ridge + two small bells visible under base lip
-  const ridge = new THREE.Mesh(new THREE.TorusGeometry(0.115, 0.008, 8, 32), chrome);
-  ridge.rotation.x = Math.PI / 2;
-  ridge.position.y = 0.005;
-  baseGroup.add(ridge);
-
-  // Cradle prongs (handset rests on these — also switch-hook)
-  const prongGeo = new THREE.CylinderGeometry(0.008, 0.008, 0.035, 10);
-  const prongL = new THREE.Mesh(prongGeo, chrome);
-  prongL.position.set(-0.045, 0.078, -0.05);
-  const prongR = prongL.clone();
-  prongR.position.x = 0.045;
-  baseGroup.add(prongL, prongR);
-
-  phoneGroup.add(baseGroup);
-
-  // --- Handset ("banana" style earpiece/mouthpiece + handle) ---
-  handsetGroup = new THREE.Group();
-  const handleCurve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(-0.09, 0, 0),
-    new THREE.Vector3(-0.03, -0.025, 0),
-    new THREE.Vector3(0.03, -0.025, 0),
-    new THREE.Vector3(0.09, 0, 0),
-  ]);
-  const handle = new THREE.Mesh(new THREE.TubeGeometry(handleCurve, 32, 0.018, 16, false), bakelite);
-  handle.castShadow = true;
-  handsetGroup.add(handle);
-
-  const earCap = new THREE.Mesh(new THREE.SphereGeometry(0.028, 20, 20), bakelite);
-  earCap.position.set(-0.095, 0.006, 0);
-  earCap.castShadow = true;
-  const mouthCap = earCap.clone();
-  mouthCap.position.set(0.095, 0.006, 0);
-  handsetGroup.add(earCap, mouthCap);
-
-  // speaker grille rings (chrome) for detail
-  [ -0.108, 0.108 ].forEach((x) => {
-    const grille = new THREE.Mesh(new THREE.TorusGeometry(0.02, 0.0025, 8, 24), chrome);
-    grille.position.set(x, 0.006, 0);
-    grille.rotation.y = Math.PI / 2;
-    handsetGroup.add(grille);
-  });
-
-  handsetGroup.position.set(0, 0.11, -0.05);
-  handsetGroup.rotation.z = Math.PI / 2;
-  phoneGroup.add(handsetGroup);
-
-  // --- Coiled cord (visual mesh; shape driven by physics bodies each frame) ---
-  const cordMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.6, metalness: 0.1 });
-  cordMesh = new THREE.Mesh(new THREE.TubeGeometry(handleCurve, CORD_SEGMENTS, 0.006, 8, false), cordMat);
-  cordMesh.castShadow = true;
-  phoneGroup.add(cordMesh);
-}
-
-function placePhone(position) {
-  placed = true;
-  phoneGroup.visible = true;
-  phoneGroup.position.copy(position);
-  reticle.visible = false;
-  hintEl.textContent = '';
-
-  // Anchor + handset physics bodies now that we know world position.
-  anchorBody.position.set(position.x, position.y + 0.03, position.z);
-  handsetBody.position.set(position.x, position.y + 0.11, position.z - 0.05);
-  handsetBody.previousPosition = handsetBody.position.clone();
-
-  // Spotlight "from the roof" above the phone, aimed down at it.
-  spotLight.position.set(position.x, position.y + 2.6, position.z + 0.1);
-  spotLight.target.position.copy(position);
-  spotLight.intensity = 6;
-
-  log('Phone placed. Pinch it to pick it up.');
-}
-
-/* ------------------------------------------------------------------
-   PHYSICS — cannon-es rope of point masses for the cord, plus a
-   rigid body for the handset that goes kinematic while grabbed and
-   dynamic (thrown) on release.
------------------------------------------------------------------- */
-function setupPhysics() {
-  physicsWorld = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
-  physicsWorld.allowSleep = true;
-
-  anchorBody = new CANNON.Body({ mass: 0, shape: new CANNON.Sphere(0.01) });
-  physicsWorld.addBody(anchorBody);
-
-  handsetBody = new CANNON.Body({
-    mass: 0.6,
-    shape: new CANNON.Box(new CANNON.Vec3(0.11, 0.03, 0.03)),
-    linearDamping: 0.4,
-    angularDamping: 0.6,
-  });
-  handsetBody.type = CANNON.Body.KINEMATIC; // starts docked in the cradle
-  physicsWorld.addBody(handsetBody);
-
-  // Rope of small spheres from the base (anchor) to the handset.
-  let prev = anchorBody;
-  for (let i = 0; i < CORD_SEGMENTS; i++) {
-    const body = new CANNON.Body({ mass: 0.01, shape: new CANNON.Sphere(0.006), linearDamping: 0.5 });
-    body.position.set(0, 0.03 - i * 0.001, 0);
-    physicsWorld.addBody(body);
-    cordBodies.push(body);
-    const c = new CANNON.DistanceConstraint(prev, body, CORD_SEG_LEN);
-    physicsWorld.addConstraint(c);
-    cordConstraints.push(c);
-    prev = body;
-  }
-  const finalC = new CANNON.DistanceConstraint(prev, handsetBody, CORD_SEG_LEN);
-  physicsWorld.addConstraint(finalC);
-  cordConstraints.push(finalC);
-}
-
-function stepPhysics(dt) {
-  physicsWorld.step(1 / 60, dt, 4);
-
-  // Update cord mesh geometry from body positions.
-  const pts = [new THREE.Vector3(anchorBody.position.x, anchorBody.position.y, anchorBody.position.z)];
-  cordBodies.forEach(b => pts.push(new THREE.Vector3(b.position.x, b.position.y, b.position.z)));
-  pts.push(new THREE.Vector3(handsetBody.position.x, handsetBody.position.y, handsetBody.position.z));
-  const curve = new THREE.CatmullRomCurve3(pts);
-  cordMesh.geometry.dispose();
-  cordMesh.geometry = new THREE.TubeGeometry(curve, CORD_SEGMENTS * 2, 0.006, 8, false);
-
-  if (!grabbedHand) {
-    handsetGroup.position.set(
-      handsetBody.position.x - phoneGroup.position.x,
-      handsetBody.position.y - phoneGroup.position.y,
-      handsetBody.position.z - phoneGroup.position.z
-    );
-    handsetGroup.quaternion.set(
-      handsetBody.quaternion.x, handsetBody.quaternion.y, handsetBody.quaternion.z, handsetBody.quaternion.w
-    );
-  }
-}
-
-/* ------------------------------------------------------------------
-   HAND TRACKING — pinch-to-grab, WebXR Hand Input API
------------------------------------------------------------------- */
-function setupHands() {
-  const handModelFactory = new XRHandModelFactory();
-
-  for (let i = 0; i < 2; i++) {
-    const hand = renderer.xr.getHand(i);
-    hand.userData.handedness = null;
-    hand.add(handModelFactory.createHandModel(hand, 'mesh'));
-    scene.add(hand);
-    handModels.push(hand);
-
-    hand.addEventListener('connected', (e) => {
-      hand.userData.handedness = e.data.handedness;
-    });
-  }
-}
-
-function getJointWorldPos(hand, name, out) {
-  const joint = hand.joints && hand.joints[name];
-  if (!joint) return null;
-  joint.getWorldPosition(out);
-  return out;
-}
-
-const _thumbPos = new THREE.Vector3();
-const _indexPos = new THREE.Vector3();
-const _midPos = new THREE.Vector3();
-const _handsetWorld = new THREE.Vector3();
-
-function updateHandTracking(dt) {
-  if (!placed) return;
-
-  handsetGroup.getWorldPosition(_handsetWorld);
-
-  for (const hand of handModels) {
-    if (!hand.joints || !hand.userData.handedness) continue;
-    if (grabbedHand && grabbedHand !== hand.userData.handedness) continue;
-
-    const t = getJointWorldPos(hand, 'thumb-tip', _thumbPos);
-    const ix = getJointWorldPos(hand, 'index-finger-tip', _indexPos);
-    if (!t || !ix) continue;
-
-    const pinchDist = t.distanceTo(ix);
-    _midPos.copy(t).add(ix).multiplyScalar(0.5);
-
-    if (!grabbedHand) {
-      const nearHandset = _midPos.distanceTo(_handsetWorld) < GRAB_RADIUS;
-      if (pinchDist < PINCH_THRESHOLD && nearHandset) {
-        grabHandset(hand.userData.handedness, _midPos);
-      }
-    } else {
-      if (pinchDist < PINCH_THRESHOLD * 1.6) {
-        // continue holding — drive kinematic body to hand position
-        const now = performance.now() / 1000;
-        const dtLocal = Math.max(now - lastGrabTime, 1 / 120);
-        const vel = new THREE.Vector3().subVectors(_midPos, lastGrabPos).multiplyScalar(1 / dtLocal);
-        handsetBody.velocity.set(vel.x, vel.y, vel.z); // stored for throw on release
-        handsetBody.position.set(_midPos.x, _midPos.y, _midPos.z);
-        lastGrabPos.copy(_midPos);
-        lastGrabTime = now;
-      } else {
-        releaseHandset();
-      }
+  // Not held: check for a new pinch near the ball.
+  for (const key of ['left', 'right']) {
+    const s = handState[key];
+    if (!s.tracked || !s.pinching) continue;
+    const dx = s.palm.x - ballBody.position.x;
+    const dy = s.palm.y - ballBody.position.y;
+    const dz = s.palm.z - ballBody.position.z;
+    if (Math.hypot(dx, dy, dz) < 0.16) {
+      heldBy = key;
+      break;
     }
   }
+  hudHint.textContent = 'Pinch near the ball to grab it';
 }
 
-function grabHandset(handedness, atPos) {
-  grabbedHand = handedness;
-  handsetBody.type = CANNON.Body.KINEMATIC;
-  handsetBody.velocity.set(0, 0, 0);
-  lastGrabPos.copy(atPos);
-  lastGrabTime = performance.now() / 1000;
-  triggerRing();
-  log('Handset picked up.');
+/* ---------------- Room scanning -> real-world collision ---------------- */
+// Maps live XRPlane -> { body, lastPos, lastQuat } so we can (a) keep
+// colliders in sync with your scanned room and (b) treat any plane whose
+// pose visibly changes frame-to-frame (e.g. an opening/closing door) as
+// a moving collider with real velocity for a believable bounce.
+const planeColliders = new Map();
+
+function polygonToConvexShape(polygon) {
+  // XRPlane polygon is a flat 2D outline (y=0 in plane space). Extrude a thin slab.
+  const pts = polygon.map(p => new CANNON.Vec3(p.x, 0, p.z));
+  if (pts.length < 3) return null;
+  const halfT = 0.015;
+  const verts = [];
+  for (const p of pts) verts.push(new CANNON.Vec3(p.x, -halfT, p.z));
+  for (const p of pts) verts.push(new CANNON.Vec3(p.x, halfT, p.z));
+  const n = pts.length;
+  const faces = [];
+  faces.push([...Array(n).keys()]);                       // bottom
+  faces.push([...Array(n).keys()].map(i => i + n).reverse()); // top
+  for (let i = 0; i < n; i++) {
+    const a = i, b = (i + 1) % n;
+    faces.push([a, b, b + n, a + n]);
+  }
+  try {
+    return new CANNON.ConvexPolyhedron({ vertices: verts, faces });
+  } catch (e) {
+    return null; // degenerate polygon; skip this frame
+  }
 }
 
-function releaseHandset() {
-  grabbedHand = null;
-  handsetBody.type = CANNON.Body.DYNAMIC;
-  handsetBody.wakeUp();
-  log('Handset released — it will swing on the cord.');
-}
+function processPlanes(frame, refSpace) {
+  anyPlaneTracked = false;
+  if (!frame.detectedPlanes) { dotPlane.classList.toggle('on', false); return; }
 
-/* ------------------------------------------------------------------
-   AUDIO / VIDEO — plays a .mov's audio track, spatialized so it
-   comes from the phone's real-world position (HRTF panning routes
-   it to whichever headset driver — L or R ear — is physically closer).
------------------------------------------------------------------- */
-function setupAudioVideo() {
-  audioListener = new THREE.AudioListener();
-  camera.add(audioListener);
-
-  videoEl = document.createElement('video');
-  videoEl.src = 'assets/phone-ring.mov'; // swap in your file; see README for codec notes
-  videoEl.crossOrigin = 'anonymous';
-  videoEl.loop = false;
-  videoEl.playsInline = true;
-  videoEl.muted = false;
-  videoEl.style.display = 'none';
-  document.body.appendChild(videoEl);
-
-  const videoSrc = new THREE.VideoTexture(videoEl); // unused visually, but keeps the video element's audio graph alive & decodable
-  videoSrc.needsUpdate = false;
-
-  positionalAudio = new THREE.PositionalAudio(audioListener);
-  positionalAudio.setMediaElementSource(videoEl);
-  positionalAudio.setRefDistance(0.15);   // very local — a real phone earpiece is tiny
-  positionalAudio.setMaxDistance(3);
-  positionalAudio.setRolloffFactor(2.2);
-  positionalAudio.setDistanceModel('exponential');
-  positionalAudio.panner.panningModel = 'HRTF'; // <- this is what routes sound to the nearer ear
-  positionalAudio.setDirectionalCone(360, 360, 0);
-}
-
-function triggerRing() {
-  if (hasRung) return; // play once per session; remove this guard if you want it to replay every pickup
-  hasRung = true;
-  handsetGroup.add(positionalAudio); // attach emitter to the handset so it tracks the mesh in 3D
-  videoEl.currentTime = 0;
-  videoEl.play().catch(err => log('Playback blocked — tap once more to allow audio: ' + err.message));
-}
-
-/* ------------------------------------------------------------------
-   VHS / HORROR FILTER — camera-locked overlay quad.
-   Standard WebXR does not expose the passthrough camera feed for
-   filtering, so this renders scanlines / grain / vignette / tracking
-   glitches as a semi-transparent layer that the XR compositor blends
-   OVER the real world, which is the closest real approximation of a
-   "VHS filter on your view" achievable without private camera access.
------------------------------------------------------------------- */
-function setupVHSOverlay() {
-  const geo = new THREE.PlaneGeometry(2, 2);
-  vhsMaterial = new THREE.ShaderMaterial({
-    transparent: true,
-    depthTest: false,
-    depthWrite: false,
-    uniforms: {
-      uTime: { value: 0 },
-      uGlitch: { value: 0 },
-    },
-    vertexShader: `
-      varying vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = vec4(position.xy, 0.0, 1.0);
-      }
-    `,
-    fragmentShader: `
-      precision highp float;
-      varying vec2 vUv;
-      uniform float uTime;
-      uniform float uGlitch;
-
-      float hash(vec2 p) { return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
-
-      void main() {
-        vec2 uv = vUv;
-        float t = uTime;
-
-        // rolling tracking-error band
-        float band = smoothstep(0.0, 0.02, abs(fract(uv.y * 1.0 + t * 0.05) - 0.5) - 0.47);
-        float glitchShift = band * (hash(vec2(t, floor(uv.y * 40.0))) - 0.5) * 0.03 * (0.4 + uGlitch);
-
-        // fine scanlines
-        float scan = sin(uv.y * 800.0) * 0.02 + sin(uv.y * 250.0 - t * 30.0) * 0.015;
-
-        // grain
-        float grain = (hash(uv * (300.0 + 40.0*sin(t)) + t) - 0.5) * 0.12;
-
-        // vignette (darkens real-world edges too, via alpha)
-        vec2 c = uv - 0.5;
-        float vig = smoothstep(0.75, 0.32, length(c));
-
-        // sickly green-black VHS tint, RGB-fringed at edges
-        vec3 tint = vec3(0.05, 0.12, 0.06);
-        float fringe = glitchShift * 6.0;
-
-        float alpha = clamp(0.16 + (1.0 - vig) * 0.55 + abs(scan) * 0.6 + band * 0.5, 0.0, 0.92);
-        vec3 col = tint + grain + vec3(fringe, 0.0, -fringe);
-
-        // occasional full-frame flash glitch
-        float flash = step(0.997, hash(vec2(floor(t * 8.0), 1.0))) * 0.4;
-        col += flash;
-        alpha = clamp(alpha + flash, 0.0, 0.95);
-
-        gl_FragColor = vec4(col, alpha);
-      }
-    `
-  });
-  vhsQuad = new THREE.Mesh(geo, vhsMaterial);
-  vhsQuad.frustumCulled = false;
-  vhsQuad.renderOrder = 9999;
-
-  const overlayScene = new THREE.Scene();
-  overlayScene.add(vhsQuad);
-  window.__overlayScene = overlayScene;
-  window.__overlayCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-}
-
-/* ------------------------------------------------------------------
-   PLANE DETECTION -> shadow-catching real-surface meshes.
-   Rendering the real desk/table as a rough, mostly-invisible
-   shadow-catcher lets the phone/spotlight/shadow interact believably
-   with real furniture, and gives the "desk is duller than phone"
-   contrast something to actually render against.
------------------------------------------------------------------- */
-const planeMeshes = new Map();
-function updateDetectedPlanes(frame, referenceSpace) {
-  if (!frame.detectedPlanes) return;
   const seen = new Set();
   for (const plane of frame.detectedPlanes) {
     seen.add(plane);
-    const pose = frame.getPose(plane.planeSpace, referenceSpace);
+    const pose = frame.getPose(plane.planeSpace, refSpace);
     if (!pose) continue;
-    let mesh = planeMeshes.get(plane);
-    if (!mesh) {
-      const shape = plane.polygon.map(p => new THREE.Vector2(p.x, p.z));
-      const geo = new THREE.ShapeGeometry(new THREE.Shape(shape));
-      const mat = new THREE.ShadowMaterial({ opacity: 0.35 });
-      mesh = new THREE.Mesh(geo, mat);
-      mesh.rotation.x = -Math.PI / 2;
-      mesh.receiveShadow = true;
-      scene.add(mesh);
-      planeMeshes.set(plane, mesh);
-    }
-    mesh.matrix.fromArray(pose.transform.matrix);
-    mesh.matrix.decompose(mesh.position, mesh.quaternion, mesh.scale);
+    anyPlaneTracked = true;
+    const p = pose.transform.position, q = pose.transform.orientation;
 
-    if (floorY === null || pose.transform.position.y < floorY) {
-      // Track the lowest known horizontal surface as an approximation of the floor.
-      if (plane.orientation === 'horizontal') floorY = pose.transform.position.y;
+    let entry = planeColliders.get(plane);
+    if (!entry || plane.lastChangedTime !== entry.lastChangedTime) {
+      // (Re)build geometry when the plane is new or its polygon changed.
+      const shape = polygonToConvexShape(plane.polygon);
+      if (!shape) continue;
+      if (entry) world.removeBody(entry.body);
+      const body = new CANNON.Body({ mass: 0, material: roomMaterial, type: CANNON.Body.KINEMATIC });
+      body.addShape(shape);
+      world.addBody(body);
+      entry = { body, lastChangedTime: plane.lastChangedTime, lastPos: new CANNON.Vec3(p.x, p.y, p.z) };
+      planeColliders.set(plane, entry);
+    }
+
+    // Live velocity so a swinging/closing door imparts a real bounce,
+    // not just a teleporting static wall.
+    const newPos = new CANNON.Vec3(p.x, p.y, p.z);
+    const vel = new CANNON.Vec3(
+      (newPos.x - entry.lastPos.x) / Math.max(dt, 1 / 240),
+      (newPos.y - entry.lastPos.y) / Math.max(dt, 1 / 240),
+      (newPos.z - entry.lastPos.z) / Math.max(dt, 1 / 240),
+    );
+    entry.body.velocity.copy(vel);
+    entry.body.position.set(p.x, p.y, p.z);
+    entry.body.quaternion.set(q.x, q.y, q.z, q.w);
+    entry.lastPos = newPos;
+
+    // Use the first sizeable, near-horizontal plane near y≈0 as our real floor.
+    if (Math.abs(p.y) < 0.15) {
+      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(new THREE.Quaternion(q.x, q.y, q.z, q.w));
+      if (up.y > 0.85) floorBody.position.y = -50; // retire the fallback plane
     }
   }
-  for (const [plane, mesh] of planeMeshes) {
-    if (!seen.has(plane)) { scene.remove(mesh); planeMeshes.delete(plane); }
+
+  // Drop colliders for planes no longer reported this frame.
+  for (const [plane, entry] of planeColliders) {
+    if (!seen.has(plane)) {
+      world.removeBody(entry.body);
+      planeColliders.delete(plane);
+    }
   }
+
+  dotPlane.classList.toggle('on', anyPlaneTracked);
 }
 
-/* ------------------------------------------------------------------
-   RENDER LOOP
------------------------------------------------------------------- */
-function render(timestamp, frame) {
-  const dt = Math.min(clock.getDelta(), 0.05);
+/* ---------------- Leg-mounted controllers -> feet ---------------- */
+const calib = {
+  drop: 0.38,   // shin(controller) -> floor, meters
+  len: 0.25,    // heel -> toe, meters
+  fwd: 0.04,    // extra forward offset, meters
+};
+
+function syncSlidersFromCalib() {
+  sliderDrop.value = (calib.drop * 100).toFixed(1);
+  sliderLen.value = (calib.len * 100).toFixed(1);
+  sliderFwd.value = (calib.fwd * 100).toFixed(1);
+  valDrop.textContent = `${(calib.drop * 100).toFixed(0)} cm`;
+  valLen.textContent = `${(calib.len * 100).toFixed(0)} cm`;
+  valFwd.textContent = `${(calib.fwd * 100).toFixed(0)} cm`;
+}
+syncSlidersFromCalib();
+
+[[sliderDrop, 'drop', valDrop], [sliderLen, 'len', valLen], [sliderFwd, 'fwd', valFwd]].forEach(([slider, key, label]) => {
+  slider.addEventListener('input', () => {
+    calib[key] = parseFloat(slider.value) / 100;
+    label.textContent = `${slider.value} cm`;
+  });
+});
+
+calibBtn.addEventListener('click', () => { calibPanel.style.display = 'block'; });
+doneBtn.addEventListener('click', () => { calibPanel.style.display = 'none'; });
+captureBtn.addEventListener('click', () => {
+  // Best-effort auto-capture: assume local-floor reference space (floor = y 0),
+  // so a controller's current height *is* the shin-to-floor drop.
+  const heights = controllers
+    .filter(c => c.grip && c.grip.visible)
+    .map(c => c.grip.position.y)
+    .filter(h => h > 0.05 && h < 0.9);
+  if (heights.length) {
+    calib.drop = heights.reduce((a, b) => a + b, 0) / heights.length;
+    syncSlidersFromCalib();
+    toast('Stance captured — fine-tune below if needed');
+  } else {
+    toast('Could not see leg controllers — check strap placement');
+  }
+});
+
+// Two controllers, each producing one "foot" kinematic collider + a
+// glowing marker mesh (visual feedback for where the app thinks your
+// foot is, since your real foot itself is just seen through passthrough).
+const footMat = new THREE.MeshBasicMaterial({ color: 0x34d17c, transparent: true, opacity: 0.35 });
+const footRingGeo = new THREE.TorusGeometry(0.05, 0.006, 8, 24);
+
+const controllers = [0, 1].map((i) => {
+  const grip = renderer.xr.getControllerGrip(i);
+  scene.add(grip);
+  const footMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.045, calib.len, 4, 8), footMat);
+  footMesh.visible = false;
+  scene.add(footMesh);
+  const ring = new THREE.Mesh(footRingGeo, footMat);
+  ring.visible = false;
+  scene.add(ring);
+
+  const body = new CANNON.Body({
+    mass: 0, type: CANNON.Body.KINEMATIC, material: limbMaterial,
+    shape: new CANNON.Sphere(0.06),
+  });
+  world.addBody(body);
+
+  return { grip, footMesh, ring, body, prevPos: new THREE.Vector3(), hasPrev: false, worldPos: new THREE.Vector3() };
+});
+
+function updateFeet() {
+  let anyLeg = false;
+  for (const c of controllers) {
+    if (!c.grip.visible) { c.footMesh.visible = false; c.ring.visible = false; continue; }
+    anyLeg = true;
+
+    // Project straight down (world -Y) from the shin point by the calibrated
+    // drop, then nudge forward along the controller's own forward axis —
+    // a simple rigid approximation of "shin strap -> foot".
+    const shinPos = c.grip.position;
+    const fwdDir = new THREE.Vector3(0, 0, -1).applyQuaternion(c.grip.quaternion);
+    fwdDir.y = 0; fwdDir.normalize();
+
+    c.worldPos.set(
+      shinPos.x + fwdDir.x * calib.fwd,
+      shinPos.y - calib.drop,
+      shinPos.z + fwdDir.z * calib.fwd
+    );
+
+    c.footMesh.visible = true;
+    c.footMesh.position.copy(c.worldPos).setY(c.worldPos.y + calib.len / 2);
+    c.footMesh.quaternion.copy(c.grip.quaternion);
+    c.ring.visible = true;
+    c.ring.position.set(c.worldPos.x, Math.max(c.worldPos.y, 0.003), c.worldPos.z);
+    c.ring.rotation.x = -Math.PI / 2;
+
+    if (c.hasPrev) {
+      const vel = c.worldPos.clone().sub(c.prevPos).multiplyScalar(1 / Math.max(dt, 1 / 240));
+      c.body.velocity.set(vel.x, vel.y, vel.z);
+    }
+    c.prevPos.copy(c.worldPos);
+    c.hasPrev = true;
+    c.body.position.set(c.worldPos.x, c.worldPos.y, c.worldPos.z);
+  }
+  dotLegs.classList.toggle('on', anyLeg);
+}
+
+/* ---------------- Session lifecycle ---------------- */
+let dt = 1 / 72;
+let lastTime = 0;
+
+async function checkSupport() {
+  if (!navigator.xr) {
+    supportNote.innerHTML = '<b>WebXR isn\'t available.</b> Open this page in the Quest Browser.';
+    return;
+  }
+  const ok = await navigator.xr.isSessionSupported('immersive-ar').catch(() => false);
+  if (ok) {
+    enterBtn.disabled = false;
+    enterBtn.textContent = 'Enter Mixed Reality';
+    supportNote.innerHTML = 'Uses hand-tracking, room planes, and your leg-strapped controllers.';
+  } else {
+    supportNote.innerHTML = '<b>Passthrough AR isn\'t supported here.</b> Try the Quest Browser on a Quest 3.';
+  }
+}
+checkSupport();
+
+let xrSession = null;
+
+enterBtn.addEventListener('click', async () => {
+  const sessionInit = {
+    requiredFeatures: ['hand-tracking', 'local-floor'],
+    optionalFeatures: ['plane-detection', 'mesh-detection', 'anchors', 'dom-overlay', 'light-estimation'],
+    domOverlay: { root: overlay },
+  };
+  try {
+    xrSession = await navigator.xr.requestSession('immersive-ar', sessionInit);
+  } catch (e) {
+    toast('Could not start AR session: ' + e.message, 4000);
+    return;
+  }
+  await renderer.xr.setReferenceSpaceType('local-floor');
+  await renderer.xr.setSession(xrSession);
+  blocker.style.display = 'none';
+  overlay.style.display = 'block';
+
+  xrSession.addEventListener('end', () => {
+    blocker.style.display = 'flex';
+    overlay.style.display = 'none';
+    resetBall();
+  });
+});
+
+/* ---------------- Main loop ---------------- */
+renderer.setAnimationLoop((time, frame) => {
+  dt = lastTime ? Math.min((time - lastTime) / 1000, 1 / 30) : 1 / 72;
+  lastTime = time;
 
   if (frame) {
-    const referenceSpace = renderer.xr.getReferenceSpace();
-    const session = renderer.xr.getSession();
+    const refSpace = renderer.xr.getReferenceSpace();
+    processHands(frame, refSpace);
+    processPlanes(frame, refSpace);
+    updateFeet();
+    updateBallGestures();
 
-    if (hitTestSourceRequested && hitTestSource && !placed) {
-      const results = frame.getHitTestResults(hitTestSource);
-      if (results.length > 0) {
-        const hit = results[0];
-        const pose = hit.getPose(referenceSpace);
-        reticle.visible = true;
-        reticle.matrix.fromArray(pose.transform.matrix);
-
-        if (floorY === null || pose.transform.position.y < floorY) {
-          // seed floor estimate conservatively low until plane-detection refines it
-        }
-      } else {
-        reticle.visible = false;
-      }
+    if (ballExists && ballBody.type === CANNON.Body.DYNAMIC) {
+      world.step(1 / 90, dt, 5);
+      ballMesh.position.copy(ballBody.position);
+      ballMesh.quaternion.copy(ballBody.quaternion);
+    } else if (ballExists) {
+      // Held/kinematic: still step the world so feet/planes stay live,
+      // just don't let it affect the (fully controlled) ball body.
+      world.step(1 / 90, dt, 5);
+      ballMesh.position.copy(ballBody.position);
+    } else {
+      world.step(1 / 90, dt, 5);
     }
 
-    updateDetectedPlanes(frame, referenceSpace);
-    updateHandTracking(dt);
+    if (spawnRingLife > 0) {
+      spawnRingLife = Math.max(0, spawnRingLife - dt * 0.8);
+      spawnRing.material.opacity = spawnRingLife * 0.6;
+      spawnRing.scale.setScalar(1 + (1 - spawnRingLife) * 1.6);
+    }
   }
 
-  stepPhysics(dt);
-
-  // gentle horror flicker on the ceiling spotlight
-  if (placed) {
-    bulbFlickerT += dt;
-    const flicker = 0.85 + 0.15 * Math.sin(bulbFlickerT * 17.0) * (Math.random() > 0.94 ? 0.4 : 1.0);
-    spotLight.intensity = 6 * flicker;
-  }
-
-  vhsMaterial.uniforms.uTime.value = timestamp / 1000;
-
-  renderer.autoClear = true;
   renderer.render(scene, camera);
-
-  renderer.autoClear = false;
-  renderer.clearDepth();
-  renderer.render(window.__overlayScene, window.__overlayCamera);
-  renderer.autoClear = true;
-}
+});
 </script>
 </body>
 </html>
