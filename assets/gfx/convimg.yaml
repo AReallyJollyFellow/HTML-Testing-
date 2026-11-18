@@ -1,0 +1,30 @@
+palettes:
+  - name: global_palette
+    max-entries: 256
+    fixed-entries:
+      - image: game_palette.png
+    images: automatic
+
+converts:
+  - name: sprites
+    palette: global_palette
+    transparent-color-index: 0
+    images:
+      - intro_banner.png
+      - slash_icon.png
+      - behead_icon.png
+      - gashing_icon.png
+      - rage_icon.png
+      - noob_face.png
+      - slasher_mask.png
+      - slasher_hood.png
+      - machete.png
+      - program_icon.png
+
+outputs:
+  - type: c
+    include-file: gfx.h
+    palettes:
+      - global_palette
+    converts:
+      - sprites

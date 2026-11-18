@@ -1,0 +1,458 @@
+
+Merging object attributes
+
+
+Discarded input sections
+
+ .comment       0x00000000      0x615 obj/FORSKN3D.o
+ .note.GNU-stack
+                0x00000000        0x0 obj/FORSKN3D.o
+ .init.weak_crt
+                0x00000000       0x10 obj/FORSKN3D.o
+ .text          0x00000000        0x0 obj/crt0.o
+ .data          0x00000000        0x0 obj/crt0.o
+ .bss           0x00000000        0x0 obj/crt0.o
+
+Memory Configuration
+
+Name             Origin             Length             Attributes
+prgm             0x00d1a87f         0x00400000
+bss              0x00d052c6         0x0000ed12
+*default*        0x00000000         0xffffffff
+
+Linker script and memory map
+
+                0x00d1a87f                        LOAD_ADDR = 0xd1a87f
+                0x00d052c6                        BSSHEAP_LOW = 0xd052c6
+                0x00d13fd8                        BSSHEAP_HIGH = 0xd13fd8
+                0x00d1a87e                        STACK_HIGH = 0xd1a87e
+                0x00000001                        __TICE__ = 0x1
+                0x00d1a87f                        . = LOAD_ADDR
+
+.header         0x00d1a87f      0x122
+ *(.header)
+ .header        0x00d1a87f        0x3 obj/crt0.o
+ *(.header.icon)
+ .header.icon   0x00d1a882      0x11f obj/FORSKN3D.o
+                0x00d1a887                ___icon
+                0x00d1a989                ___description
+
+.init           0x00d1a9a1      0x140
+ *(.init)
+ .init          0x00d1a9a1      0x140 obj/crt0.o
+                0x00d1a9a1                __start
+                0x00d1a9fe                __libload_library_GRAPHX
+                0x00d1aa07                _gfx_Begin
+                0x00d1aa0b                _gfx_End
+                0x00d1aa0f                _gfx_SetColor
+                0x00d1aa13                _gfx_SetPalette
+                0x00d1aa17                _gfx_FillScreen
+                0x00d1aa1b                _gfx_SetDraw
+                0x00d1aa1f                _gfx_SwapDraw
+                0x00d1aa23                _gfx_PrintInt
+                0x00d1aa27                _gfx_PrintString
+                0x00d1aa2b                _gfx_PrintStringXY
+                0x00d1aa2f                _gfx_SetTextFGColor
+                0x00d1aa33                _gfx_FillRectangle
+                0x00d1aa37                _gfx_TransparentSprite
+                0x00d1aa3b                _gfx_FillTriangle
+                0x00d1aa3f                _gfx_SetTextScale
+                0x00d1aa43                _gfx_SetTransparentColor
+                0x00d1aa47                __libload_library_KEYPADC
+                0x00d1aa51                _kb_Scan
+                0x00d1aaa5                ___exithl
+                0x00d1aaa6                _exit.sp
+
+.text           0x00d1aae1     0x3a55
+ *(.text.unlikely .text.*_unlikely .text.unlikely.*)
+ *(.text.exit .text.exit.*)
+ *(.text.startup .text.startup.*)
+ *(.text.hot .text.hot.*)
+ *(SORT_BY_NAME(.text.sorted.*))
+ *(.text .stub .text.* .gnu.linkonce.t.*)
+ .text          0x00d1aae1      0x383 obj/FORSKN3D.o
+                0x00d1aae1                __land
+                0x00d1aae5                __iand
+                0x00d1aafc                __bdivu
+                0x00d1ab06                __bdvrmu
+                0x00d1ab07                __bdvrmu.hijack_l_dividend
+                0x00d1ab15                __bshl
+                0x00d1ab1e                __bshrs
+                0x00d1ab28                __frameset
+                0x00d1ab36                __frameset0
+                0x00d1ab41                __idivs
+                0x00d1ab48                __idivu
+                0x00d1ab50                __idvrms
+                0x00d1ab7e                __idvrmu
+                0x00d1ab82                __idvrmu.hijack_a_iters_ude_dividend
+                0x00d1ab98                __imuls
+                0x00d1ab98                __imulu
+                0x00d1abc8                __ineg
+                0x00d1abc8                __sneg
+                0x00d1abd1                __irems
+                0x00d1abd9                __iremu
+                0x00d1abe0                __sshl
+                0x00d1abe0                __ishl
+                0x00d1ac06                __ishru
+                0x00d1ac0b                __ishrs
+                0x00d1ac47                __ishrs_1
+                0x00d1ac55                __ishru_1
+                0x00d1ac63                __ladd
+                0x00d1ac69                __lcmps
+                0x00d1ac76                __lcmpu
+                0x00d1ac7e                __lmuls
+                0x00d1ac7e                __lmulu
+                0x00d1acda                __lshrs
+                0x00d1acf4                __lshru
+                0x00d1ad02                __sand
+                0x00d1ad0b                __sdivs
+                0x00d1ad17                __sdivu
+                0x00d1ad1f                __sdvrms_abs
+                0x00d1ad3f                __sdvrmu
+                0x00d1ad4f                __setflag
+                0x00d1ad59                __smuls
+                0x00d1ad59                __smulu
+                0x00d1ad6c                __sor
+                0x00d1ad75                __sremu
+                0x00d1ad7c                __sshru
+                0x00d1ad89                __ultof
+                0x00d1ad9d                __lxor
+                0x00d1ada1                __ixor
+                0x00d1adb8                _atomic_load_32
+                0x00d1add6                ___sleep_common.1
+                0x00d1add6                ___sleep_common
+                0x00d1add7                ___sleep_common.2
+                0x00d1add8                ___sleep_common.3
+                0x00d1adf1                _clock
+                0x00d1adfc                _copysign
+                0x00d1adfc                _copysignf
+                0x00d1ae0c                _trunc
+                0x00d1ae0c                _truncf
+                0x00d1ae3f                _atomic_load_increasing_32
+ .text._main    0x00d1ae64     0x27e2 obj/FORSKN3D.o
+                0x00d1ae64                _main
+ .text._reset   0x00d1d646      0x2ef obj/FORSKN3D.o
+ .text._move_ent
+                0x00d1d935       0xf9 obj/FORSKN3D.o
+ .text._gens_done
+                0x00d1da2e       0x43 obj/FORSKN3D.o
+ .text._emit_static
+                0x00d1da71       0x7d obj/FORSKN3D.o
+ .text._emit_rig
+                0x00d1daee       0xca obj/FORSKN3D.o
+ .text._faces_camera
+                0x00d1dbb8       0x7d obj/FORSKN3D.o
+ .text._draw_world_sprite
+                0x00d1dc35      0x181 obj/FORSKN3D.o
+ .text._emit_part
+                0x00d1ddb6      0x5c7 obj/FORSKN3D.o
+ .text._blocked
+                0x00d1e37d      0x135 obj/FORSKN3D.o
+ .text._delay   0x00d1e4b2       0x2a obj/FORSKN3D.o
+                0x00d1e4b2                _msleep
+                0x00d1e4b2                _delay
+ .text._lroundf
+                0x00d1e4dc       0x20 obj/FORSKN3D.o
+                0x00d1e4dc                _lroundf
+                0x00d1e4dc                _lround
+ .text._roundf  0x00d1e4fc       0x3a obj/FORSKN3D.o
+                0x00d1e4fc                _round
+                0x00d1e4fc                _roundf
+ *(.gnu.warning)
+
+.rodata         0x00d1e536      0x2b3
+ *(.rodata .rodata.* .gnu.linkonce.r.*)
+ .rodata._main  0x00d1e536       0x1b obj/FORSKN3D.o
+ .rodata._.str  0x00d1e551        0xf obj/FORSKN3D.o
+ .rodata._.str.1
+                0x00d1e560       0x22 obj/FORSKN3D.o
+ .rodata._.str.2
+                0x00d1e582       0x26 obj/FORSKN3D.o
+ .rodata._.str.3
+                0x00d1e5a8       0x23 obj/FORSKN3D.o
+ .rodata._.str.4
+                0x00d1e5cb        0xc obj/FORSKN3D.o
+ .rodata._gx    0x00d1e5d7        0x9 obj/FORSKN3D.o
+ .rodata._gz    0x00d1e5e0        0x9 obj/FORSKN3D.o
+ .rodata._update.gash_damage
+                0x00d1e5e9        0x6 obj/FORSKN3D.o
+ *fill*         0x00d1e5ef        0x1 
+ .rodata._SURV  0x00d1e5f0       0x78 obj/FORSKN3D.o
+ .rodata._KILL  0x00d1e668       0xb4 obj/FORSKN3D.o
+ .rodata._.str.5
+                0x00d1e71c        0x9 obj/FORSKN3D.o
+ .rodata._.str.6
+                0x00d1e725       0x12 obj/FORSKN3D.o
+ .rodata._.str.7
+                0x00d1e737        0xb obj/FORSKN3D.o
+ .rodata._.str.8
+                0x00d1e742        0xd obj/FORSKN3D.o
+ .rodata._FACE  0x00d1e74f       0x18 obj/FORSKN3D.o
+ .rodata._FSH   0x00d1e767        0x6 obj/FORSKN3D.o
+ .rodata._.str.9
+                0x00d1e76d        0x5 obj/FORSKN3D.o
+ .rodata._.str.10
+                0x00d1e772        0x3 obj/FORSKN3D.o
+ .rodata._.str.11
+                0x00d1e775        0xc obj/FORSKN3D.o
+ .rodata._.str.12
+                0x00d1e781        0x9 obj/FORSKN3D.o
+ .rodata._.str.13
+                0x00d1e78a        0x7 obj/FORSKN3D.o
+ .rodata._.str.14
+                0x00d1e791        0x8 obj/FORSKN3D.o
+ .rodata._.str.15
+                0x00d1e799        0x8 obj/FORSKN3D.o
+ .rodata._.str.16
+                0x00d1e7a1        0x9 obj/FORSKN3D.o
+ .rodata._.str.17
+                0x00d1e7aa        0xb obj/FORSKN3D.o
+ .rodata._.str.18
+                0x00d1e7b5       0x12 obj/FORSKN3D.o
+ .rodata.libload
+                0x00d1e7c7       0x22 obj/crt0.o
+
+.init_array     0x00d1e7e9        0x0
+                [!provide]                        PROVIDE (__init_array_start = .)
+ *(.preinit_array)
+ *(SORT_BY_INIT_PRIORITY(.init_array.*))
+ *(.init_array)
+                [!provide]                        PROVIDE (__init_array_end = .)
+
+.fini_array     0x00d1e7e9        0x0
+                [!provide]                        PROVIDE (__fini_array_start = .)
+ *(SORT_BY_INIT_PRIORITY(.fini_array.*))
+ *(.fini_array)
+                [!provide]                        PROVIDE (__fini_array_end = .)
+                0x00d1e7e9                        ___data_low = .
+
+.data           0x00d1e7e9     0x6d86
+ *(.data .data.* .gnu.linkonce.d.*)
+ .data._global_palette
+                0x00d1e7e9      0x200 obj/FORSKN3D.o
+                0x00d1e7e9                _global_palette
+ .data._intro_banner_data
+                0x00d1e9e9     0x5e8a obj/FORSKN3D.o
+                0x00d1e9e9                _intro_banner_data
+ .data._noob_face_data
+                0x00d24873      0x192 obj/FORSKN3D.o
+                0x00d24873                _noob_face_data
+ .data._slasher_mask_data
+                0x00d24a05      0x16a obj/FORSKN3D.o
+                0x00d24a05                _slasher_mask_data
+ .data._slasher_hood_data
+                0x00d24b6f      0x146 obj/FORSKN3D.o
+                0x00d24b6f                _slasher_hood_data
+ .data._machete_data
+                0x00d24cb5      0x122 obj/FORSKN3D.o
+                0x00d24cb5                _machete_data
+ .data._slash_icon_data
+                0x00d24dd7      0x1e6 obj/FORSKN3D.o
+                0x00d24dd7                _slash_icon_data
+ .data._behead_icon_data
+                0x00d24fbd      0x1e6 obj/FORSKN3D.o
+                0x00d24fbd                _behead_icon_data
+ .data._gashing_icon_data
+                0x00d251a3      0x1e6 obj/FORSKN3D.o
+                0x00d251a3                _gashing_icon_data
+ .data._rage_icon_data
+                0x00d25389      0x1e6 obj/FORSKN3D.o
+                0x00d25389                _rage_icon_data
+ *(.data1)
+                0x00d2556f                        ___runprgm_reloc_start = .
+ *(.runprgm.reloc)
+                0x00d2556f                        ___runprgm_reloc_end = .
+                0x00d2556f                        ___data_high = .
+                0x00006d86                        ___data_len = (___data_high - ___data_low)
+                0x00d052c6                        . = BSSHEAP_LOW
+                0x00d052c6                        ___bss_low = .
+
+.bss            0x00d052c6      0xbee
+ *(.dynbss)
+ *(.bss .bss.* .gnu.linkonce.b.*)
+ .bss._sintab   0x00d052c6      0x100 obj/FORSKN3D.o
+ .bss._px       0x00d053c6        0x3 obj/FORSKN3D.o
+ .bss._pz       0x00d053c9        0x3 obj/FORSKN3D.o
+ .bss._pyaw     0x00d053cc        0x1 obj/FORSKN3D.o
+ .bss._pph      0x00d053cd        0x1 obj/FORSKN3D.o
+ .bss._hp       0x00d053ce        0x3 obj/FORSKN3D.o
+ .bss._stam     0x00d053d1        0x3 obj/FORSKN3D.o
+ .bss._tired    0x00d053d4        0x1 obj/FORSKN3D.o
+ .bss._hurt     0x00d053d5        0x3 obj/FORSKN3D.o
+ .bss._inv      0x00d053d8        0x3 obj/FORSKN3D.o
+ .bss._bleed    0x00d053db        0x3 obj/FORSKN3D.o
+ .bss._deadt    0x00d053de        0x3 obj/FORSKN3D.o
+ .bss._pstate   0x00d053e1        0x3 obj/FORSKN3D.o
+ .bss._kstun    0x00d053e4        0x3 obj/FORSKN3D.o
+ .bss._helpless
+                0x00d053e7        0x3 obj/FORSKN3D.o
+ .bss._paction_t
+                0x00d053ea        0x3 obj/FORSKN3D.o
+ .bss._paction  0x00d053ed        0x3 obj/FORSKN3D.o
+ .bss._shield   0x00d053f0        0x3 obj/FORSKN3D.o
+ .bss._burger_cd
+                0x00d053f3        0x3 obj/FORSKN3D.o
+ .bss._burger   0x00d053f6        0x3 obj/FORSKN3D.o
+ .bss._slate_cd
+                0x00d053f9        0x3 obj/FORSKN3D.o
+ .bss._slate    0x00d053fc        0x3 obj/FORSKN3D.o
+ .bss._cola_cd  0x00d053ff        0x3 obj/FORSKN3D.o
+ .bss._cola     0x00d05402        0x3 obj/FORSKN3D.o
+ .bss._kx       0x00d05405        0x3 obj/FORSKN3D.o
+ .bss._kz       0x00d05408        0x3 obj/FORSKN3D.o
+ .bss._kyaw     0x00d0540b        0x1 obj/FORSKN3D.o
+ .bss._kph      0x00d0540c        0x1 obj/FORSKN3D.o
+ .bss._katk     0x00d0540d        0x3 obj/FORSKN3D.o
+ .bss._khit     0x00d05410        0x3 obj/FORSKN3D.o
+ .bss._katype   0x00d05413        0x3 obj/FORSKN3D.o
+ .bss._kacd     0x00d05416        0x3 obj/FORSKN3D.o
+ .bss._kbeheadcd
+                0x00d05419        0x3 obj/FORSKN3D.o
+ .bss._kgashcd  0x00d0541c        0x3 obj/FORSKN3D.o
+ .bss._krage    0x00d0541f        0x3 obj/FORSKN3D.o
+ .bss._kragecd  0x00d05422        0x3 obj/FORSKN3D.o
+ .bss._kmove    0x00d05425        0x1 obj/FORSKN3D.o
+ .bss._gprog    0x00d05426        0x9 obj/FORSKN3D.o
+ .bss._game     0x00d0542f        0x3 obj/FORSKN3D.o
+ .bss._tick     0x00d05432        0x3 obj/FORSKN3D.o
+ .bss._ox       0x00d05435       0x2a obj/FORSKN3D.o
+ .bss._oz       0x00d0545f       0x2a obj/FORSKN3D.o
+ .bss._ohy      0x00d05489       0x2a obj/FORSKN3D.o
+ .bss._ability_keys
+                0x00d054b3        0x1 obj/FORSKN3D.o
+ .bss._camx     0x00d054b4        0x3 obj/FORSKN3D.o
+ .bss._camz     0x00d054b7        0x3 obj/FORSKN3D.o
+ .bss._camy     0x00d054ba        0x1 obj/FORSKN3D.o
+ .bss._csn      0x00d054bb        0x3 obj/FORSKN3D.o
+ .bss._ccs      0x00d054be        0x3 obj/FORSKN3D.o
+ .bss._nq       0x00d054c1        0x3 obj/FORSKN3D.o
+ .bss._q        0x00d054c4      0x9c0 obj/FORSKN3D.o
+ .bss._order    0x00d05e84       0x30 obj/FORSKN3D.o
+ *(COMMON)
+                0x00d05eb4                        ___bss_high = .
+                0x00000bee                        ___bss_len = (___bss_high - ___bss_low)
+                0x00000001                        ASSERT ((. <= BSSHEAP_HIGH), Error: BSS exceed BSSHEAP_HIGH limit)
+                0x00d05eb4                        ___heap_low = .
+                0x00d13fd8                        . = BSSHEAP_HIGH
+                0x00d13fd8                        ___heap_high = .
+
+.runprgm
+ *(.runprgm.reloc)
+
+.debug_info
+ *(.debug_info .debug_info.*)
+
+.debug_abbrev
+ *(.debug_abbrev .debug_abbrev.*)
+
+.debug_line
+ *(.debug_line .debug_line.*)
+
+.debug_line_str
+ *(.debug_line_str .debug_line_str.*)
+
+.debug_str
+ *(.debug_str .debug_str.*)
+
+.debug_str_offsets
+ *(.debug_str_offsets .debug_str_offsets.*)
+
+.debug_addr
+ *(.debug_addr .debug_addr.*)
+
+.debug_aranges
+ *(.debug_aranges .debug_aranges.*)
+
+.debug_ranges
+ *(.debug_ranges .debug_ranges.*)
+
+.debug_rnglists
+ *(.debug_rnglists .debug_rnglists.*)
+
+.debug_loc
+ *(.debug_loc .debug_loc.*)
+
+.debug_loclists
+ *(.debug_loclists .debug_loclists.*)
+
+.debug_frame
+ *(.debug_frame .debug_frame.*)
+
+.debug_macro
+ *(.debug_macro .debug_macro.*)
+
+.debug_macinfo
+ *(.debug_macinfo .debug_macinfo.*)
+
+.debug_names
+ *(.debug_names .debug_names.*)
+
+.debug_pubnames
+ *(.debug_pubnames .debug_pubnames.*)
+
+.debug_pubtypes
+ *(.debug_pubtypes .debug_pubtypes.*)
+
+.debug_types
+ *(.debug_types .debug_types.*)
+
+.debug_sup
+ *(.debug_sup .debug_sup.*)
+
+.debug_cu_index
+ *(.debug_cu_index .debug_cu_index.*)
+
+.debug_tu_index
+ *(.debug_tu_index .debug_tu_index.*)
+
+.gdb_index
+ *(.gdb_index)
+
+.debug_gdb_scripts
+ *(.debug_gdb_scripts)
+
+.debug_abbrev.dwo
+ *(.debug_abbrev.dwo .debug_abbrev.dwo.*)
+
+.debug_info.dwo
+ *(.debug_info.dwo .debug_info.dwo.*)
+
+.debug_line.dwo
+ *(.debug_line.dwo .debug_line.dwo.*)
+
+.debug_loclists.dwo
+ *(.debug_loclists.dwo .debug_loclists.dwo.*)
+
+.debug_macro.dwo
+ *(.debug_macro.dwo .debug_macro.dwo.*)
+
+.debug_rnglists.dwo
+ *(.debug_rnglists.dwo .debug_rnglists.dwo.*)
+
+.debug_str.dwo
+ *(.debug_str.dwo .debug_str.dwo.*)
+
+.debug_str_offsets.dwo
+ *(.debug_str_offsets.dwo .debug_str_offsets.dwo.*)
+
+.eh_frame
+ *(.eh_frame)
+
+.eh_frame_hdr
+ *(.eh_frame_hdr)
+
+/DISCARD/
+ *(.comment)
+ *(.note*)
+                [!provide]                        PROVIDE (___runprgm_reloc_len = (___runprgm_reloc_end - ___runprgm_reloc_start))
+LOAD obj/FORSKN3D.o
+LOAD obj/crt0.o
+START GROUP
+LOAD /tmp/cedev/CEdev/lib/libc/allocator_standard.a
+LOAD /tmp/cedev/CEdev/lib/crt/libcrt.a
+LOAD /tmp/cedev/CEdev/lib/ce/libce.a
+LOAD /tmp/cedev/CEdev/lib/softfloat/libsoftfloat.a
+LOAD /tmp/cedev/CEdev/lib/libc/libc_os.a
+LOAD /tmp/cedev/CEdev/lib/libcxx/libcxx.a
+END GROUP
+OUTPUT(bin/FORSKN3D.obj elf32-z80)

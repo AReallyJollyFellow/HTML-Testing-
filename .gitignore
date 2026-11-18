@@ -1,0 +1,4 @@
+/obj/
+/assets/gfx/*.h
+/assets/gfx/*.c
+/assets/gfx/convimg.yaml.lst
